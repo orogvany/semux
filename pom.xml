@@ -140,15 +140,16 @@
                 <artifactId>appbundle-maven-plugin</artifactId>
                 <version>1.2.0</version>
                 <configuration>
-                    <mainClass>org.semux.gui.SemuxGUI</mainClass>
+                    <mainClass>org.semux.gui.ApplicationLauncher</mainClass>
                     <!-- scrutinizer doesn't like to build OSX DMGs uncomment for build. -->
                     <!--<generateDiskImageFile>true</generateDiskImageFile>-->
                     <jvmVersion>1.8</jvmVersion>
                     <iconFile>logo.icns</iconFile>
+                    <!-- put database and wallet in app support -->
+                    <dictionaryFile>Info.plist.template</dictionaryFile>
                     <additionalResources>
                         <additionalResource>
                             <includes>
-                                <include>config/**</include>
                                 <include>LICENSE*</include>
                             </includes>
                             <directory>${project.basedir}</directory>
@@ -210,7 +211,6 @@
                                       tofile="${dist.base}/linux/config/logback.xml"/> />
 
                                 <!-- osx build (dmg) -->
-                                <!-- will work with above 'generateDiskImageFile' uncommented - for now just get clean build -->
                                 <copy todir="${dist.base}/macos">
                                     <fileset dir="${project.basedir}/target/semux-${project.version}">
                                     </fileset>

@@ -5,9 +5,11 @@
             <pattern>%date{HH:mm:ss.SSS} %-8([%level]) %-16logger{0} %msg%n</pattern>
         </encoder>
     </appender>
+    <property resource="default.properties" />
+    <property file="config/semux.properties" />
 
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-        <file>debug.log</file>
+        <file>${log.dir}/debug.log</file>
         <append>true</append>
         <immediateFlush>true</immediateFlush>
         <encoder>

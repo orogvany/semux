@@ -31,7 +31,7 @@ public abstract class AbstractConfig implements Config {
 
     private static final Logger logger = LoggerFactory.getLogger(AbstractConfig.class);
 
-    private static final String CONFIG_FILE = "semux.properties";
+    public static final String CONFIG_FILE = "semux.properties";
 
     // =========================
     // General

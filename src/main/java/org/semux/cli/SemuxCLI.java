@@ -118,7 +118,7 @@ public class SemuxCLI extends Launcher {
         CommandLine cmd = parseOptions(args);
 
         if (cmd.hasOption(SemuxOption.DATA_DIR.toString())) {
-            setDataDir(cmd.getOptionValue(SemuxOption.DATA_DIR.toString()));
+            setDataDir(replaceShellExpansions(cmd.getOptionValue(SemuxOption.DATA_DIR.toString())));
         }
 
         if (cmd.hasOption(SemuxOption.COINBASE.toString())) {

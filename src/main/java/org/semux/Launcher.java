@@ -27,6 +27,7 @@ public abstract class Launcher {
     protected static final String DEVNET = "devnet";
     protected static final String TESTNET = "testnet";
     protected static final String MAINNET = "mainnet";
+    public static final String USER_HOME = "user.home";
 
     private Options options = new Options();
 
@@ -112,6 +113,19 @@ public abstract class Launcher {
         LoggerConfigurator.configure(
                 new File(cmd.hasOption(SemuxOption.DATA_DIR.name()) ? cmd.getOptionValue(SemuxOption.DATA_DIR.name())
                         : Constants.DEFAULT_DATA_DIR));
+    }
+    /**
+     * support shell expansions of ~
+     * @param directoryPath
+     * @return
+     */
+    protected String replaceShellExpansions(String directoryPath)
+    {
+        if (directoryPath.startsWith("~" + File.separator))
+        {
+            directoryPath = System.getProperty(USER_HOME) + directoryPath.substring(1);
+        }
+        return directoryPath;
     }
 
     /**

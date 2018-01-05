@@ -6,22 +6,8 @@
  */
 package org.semux.gui;
 
-import java.awt.EventQueue;
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import javax.swing.JFrame;
-import javax.swing.JOptionPane;
-import javax.swing.UIManager;
-import javax.swing.UnsupportedLookAndFeelException;
-
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -53,8 +39,17 @@ import org.semux.util.SystemUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import javax.swing.*;
+import java.awt.*;
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Graphic user interface.
@@ -143,8 +138,9 @@ public class SemuxGUI extends Launcher {
         CommandLineParser parser = new DefaultParser();
         CommandLine cmd = parser.parse(getOptions(), args);
 
-        if (cmd.hasOption(SemuxOption.DATA_DIR.toString())) {
-            setDataDir(cmd.getOptionValue(SemuxOption.DATA_DIR.toString()));
+        if (cmd.hasOption(SemuxOption.DATA_DIR.toString()))
+        {
+            setDataDir(replaceShellExpansions(cmd.getOptionValue(SemuxOption.DATA_DIR.toString())));
         }
 
         if (cmd.hasOption(SemuxOption.NETWORK.toString())) {
