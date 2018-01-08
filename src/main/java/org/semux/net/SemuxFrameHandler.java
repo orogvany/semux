@@ -75,7 +75,7 @@ public class SemuxFrameHandler extends ByteToMessageCodec<Frame> {
         }
 
         int packetSize = frame.getPacketSize();
-        if(packetSize == 0){
+        if(packetSize == 0) {
             throw new IOException("Invalid packet size");
         }
 
