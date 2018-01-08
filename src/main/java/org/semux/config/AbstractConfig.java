@@ -11,9 +11,11 @@ import java.io.FileInputStream;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import org.semux.core.TransactionType;
 import org.semux.core.Unit;
@@ -43,6 +45,7 @@ public abstract class AbstractConfig implements Config {
 
     protected int maxBlockTransactionsSize = 1 * 1024 * 1024;
     protected long minTransactionFee = 5L * Unit.MILLI_SEM;
+    protected long maxTransactionTimeDrift = TimeUnit.HOURS.toMillis(2);
     protected long minDelegateBurnAmount = 1000L * Unit.SEM;
     protected long mandatoryUpgrade = Constants.BLOCKS_PER_DAY * 60L;
 
@@ -90,6 +93,7 @@ public abstract class AbstractConfig implements Config {
     protected long bftPreCommitTimeout = 6000L;
     protected long bftCommitTimeout = 3000L;
     protected long bftFinalizeTimeout = 3000L;
+    protected long maxBlockTimeDrift = TimeUnit.SECONDS.toMillis(30);
 
     // =========================
     // Virtual machine
@@ -98,9 +102,14 @@ public abstract class AbstractConfig implements Config {
     protected int vmMaxStackSize = 1024;
     protected int vmInitHeapSize = 128;
 
+    // =========================
+    // UI
+    // =========================
+    protected Locale locale = Locale.getDefault();
+
     /**
      * Create an {@link AbstractConfig} instance.
-     * 
+     *
      * @param dataDir
      * @param networkId
      * @param networkVersion
@@ -202,6 +211,11 @@ public abstract class AbstractConfig implements Config {
     @Override
     public long minTransactionFee() {
         return minTransactionFee;
+    }
+
+    @Override
+    public long maxTransactionTimeDrift() {
+        return maxTransactionTimeDrift;
     }
 
     @Override
@@ -340,6 +354,11 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
+    public long maxBlockTimeDrift() {
+        return maxBlockTimeDrift;
+    }
+
+    @Override
     public boolean vmEnabled() {
         return vmEnabled;
     }
@@ -352,6 +371,11 @@ public abstract class AbstractConfig implements Config {
     @Override
     public int vmInitialHeapSize() {
         return vmInitHeapSize;
+    }
+
+    @Override
+    public Locale locale() {
+        return locale;
     }
 
     protected void init() {
@@ -427,6 +451,14 @@ public abstract class AbstractConfig implements Config {
                 case "api.password":
                     apiPassword = props.getProperty(name);
                     break;
+                case "ui.locale": {
+                    // ui.locale must be in format of en_US ([language]_[country])
+                    String[] localeComponents = props.getProperty(name).trim().split("_");
+                    if (localeComponents.length == 2) {
+                        locale = new Locale(localeComponents[0], localeComponents[1]);
+                    }
+                    break;
+                }
                 default:
                     logger.error("Unsupported option: {} = {}", name, props.getProperty(name));
                     break;

@@ -8,6 +8,7 @@ package org.semux.config;
 
 import java.io.File;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -65,6 +66,14 @@ public interface Config {
      * @return
      */
     long minTransactionFee();
+
+    /**
+     * Returns the maximum allowed time drift between transaction timestamp and
+     * local clock. See ${@link org.semux.core.PendingManager#processTransaction}
+     *
+     * @return
+     */
+    long maxTransactionTimeDrift();
 
     /**
      * Returns the min amount of value burned when registering as a delegate.
@@ -310,6 +319,13 @@ public interface Config {
      */
     long bftFinalizeTimeout();
 
+    /**
+     * Returns the maximum time drift of a block time in the future.
+     *
+     * @return
+     */
+    long maxBlockTimeDrift();
+
     // =========================
     // Virtual machine
     // =========================
@@ -334,4 +350,15 @@ public interface Config {
      * @return
      */
     int vmInitialHeapSize();
+
+    // =========================
+    // UI
+    // =========================
+
+    /**
+     * Returns the localization of UI
+     *
+     * @return
+     */
+    Locale locale();
 }
