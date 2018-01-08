@@ -74,6 +74,11 @@ public class SemuxFrameHandler extends ByteToMessageCodec<Frame> {
             throw new IOException("Invalid frame body size: " + bodySize);
         }
 
+        int packetSize = frame.getPacketSize();
+        if(packetSize == 0){
+            throw new IOException("Invalid packet size");
+        }
+
         if (in.readableBytes() < bodySize) {
             // reset reader index if not available
             in.readerIndex(readerIndex);
