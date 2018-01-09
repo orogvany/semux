@@ -6,7 +6,7 @@
  */
 package org.semux.gui;
 
-import java.awt.Desktop;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
@@ -16,18 +16,14 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 
-import javax.swing.JFileChooser;
-import javax.swing.JFrame;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
+import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.semux.core.Wallet;
 import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
 import org.semux.gui.dialog.ChangePasswordDialog;
+import org.semux.gui.dialog.ConsoleDialog;
 import org.semux.gui.dialog.ExportPrivateKeyDialog;
 import org.semux.gui.dialog.InputDialog;
 import org.semux.message.GUIMessages;
@@ -103,6 +99,12 @@ public class MenuBar extends JMenuBar implements ActionListener {
         itemAbout.addActionListener(this);
         menuHelp.add(itemAbout);
 
+        JMenuItem itemConsole = new JMenuItem(GUIMessages.get("Console"));
+        itemConsole.setName("itemConsole");
+        itemConsole.setActionCommand(Action.CONSOLE.name());
+        itemConsole.addActionListener(this);
+        menuHelp.add(itemConsole);
+
         JMenuItem itemHelp = new JMenuItem(GUIMessages.get("Help"));
         itemHelp.setName("itemHelp");
         itemHelp.setActionCommand(Action.HELP.name());
@@ -138,6 +140,9 @@ public class MenuBar extends JMenuBar implements ActionListener {
             break;
         case HELP:
             help();
+            break;
+        case CONSOLE:
+            console();
             break;
         default:
             break;
@@ -257,6 +262,17 @@ public class MenuBar extends JMenuBar implements ActionListener {
         }
 
         ExportPrivateKeyDialog d = new ExportPrivateKeyDialog(gui, frame);
+        d.setVisible(true);
+    }
+
+    /**
+     * Shows the console
+     */
+    private void console() {
+        if (showErroIfLocked()) {
+            return;
+        }
+        ConsoleDialog d = new ConsoleDialog(gui, frame);
         d.setVisible(true);
     }
 

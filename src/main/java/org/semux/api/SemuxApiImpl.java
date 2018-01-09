@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2017 The Semux Developers
+ *
+ * Distributed under the MIT software license, see the accompanying file
+ * LICENSE or https://opensource.org/licenses/mit-license.php
+ */
 package org.semux.api;
 
 import java.net.UnknownHostException;
@@ -120,8 +126,7 @@ public class SemuxApiImpl implements SemuxAPI {
         return new GetLatestBlockResponse(true, new GetBlockResponse.Result(kernel.getBlockchain().getLatestBlock()));
     }
 
-    @Override
-    public ApiHandlerResponse getBlock(long blockNum) {
+    public ApiHandlerResponse getBlock(Long blockNum) {
         Block block = kernel.getBlockchain().getBlock(blockNum);
 
         if (block == null) {
@@ -132,16 +137,27 @@ public class SemuxApiImpl implements SemuxAPI {
     }
 
     @Override
-    public ApiHandlerResponse getBlock(String hashString) {
+    public ApiHandlerResponse getBlock(String value) {
 
-        byte[] hash = Hex.decode0x(hashString);
-        Block block = kernel.getBlockchain().getBlock(hash);
-
-        if (block == null) {
-            return failure("The requested block was not found");
+        // try to delegate to getBlock by number
+        try {
+            return getBlock(Long.valueOf(value));
+        } catch (NumberFormatException e) {
+            // suppress, and try as hex
         }
 
-        return new GetBlockResponse(true, new GetBlockResponse.Result(block));
+        try {
+            byte[] hash = Hex.decode0x(value);
+            Block block = kernel.getBlockchain().getBlock(hash);
+
+            if (block == null) {
+                return failure("The requested block was not found");
+            }
+
+            return new GetBlockResponse(true, new GetBlockResponse.Result(block));
+        } catch (CryptoException e) {
+            return failure("Invalid hex: " + value);
+        }
     }
 
     @Override
@@ -347,7 +363,8 @@ public class SemuxApiImpl implements SemuxAPI {
         return doTransaction(type, amountToSend, from, to, fee, data);
     }
 
-    private ApiHandlerResponse doTransaction(TransactionType type, String value, String from, String to, String fee, String data) {
+    private ApiHandlerResponse doTransaction(TransactionType type, String value, String from, String to, String fee,
+            String data) {
         // [3] build and send the transaction to PendingManager
         try {
             TransactionBuilder transactionBuilder = new TransactionBuilder(kernel, type)
@@ -403,7 +420,8 @@ public class SemuxApiImpl implements SemuxAPI {
     /**
      * Validate node parameter of /add_node API
      *
-     * @param node node parameter of /add_node API
+     * @param node
+     *            node parameter of /add_node API
      * @return validated hostname and port number
      */
     private NodeManager.Node validateAddNodeParameter(String node) {

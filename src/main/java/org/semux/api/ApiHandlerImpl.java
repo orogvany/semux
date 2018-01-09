@@ -138,7 +138,7 @@ public class ApiHandlerImpl implements ApiHandler {
      * @return
      */
     private ApiHandlerResponse getPeers() {
-       return semuxApi.getPeers();
+        return semuxApi.getPeers();
     }
 
     /**
@@ -148,7 +148,7 @@ public class ApiHandlerImpl implements ApiHandler {
      * @return result
      */
     private ApiHandlerResponse addNode(Map<String, String> params) {
-       return semuxApi.addNode(params.get("node"));
+        return semuxApi.addNode(params.get("node"));
     }
 
     /**
@@ -283,7 +283,7 @@ public class ApiHandlerImpl implements ApiHandler {
      * @return
      */
     private ApiHandlerResponse getValidators() {
-       return semuxApi.getValidators();
+        return semuxApi.getValidators();
     }
 
     /**
@@ -324,7 +324,7 @@ public class ApiHandlerImpl implements ApiHandler {
      * @return
      */
     private ApiHandlerResponse listAccounts() {
-       return semuxApi.listAccounts();
+        return semuxApi.listAccounts();
     }
 
     /**
@@ -376,13 +376,13 @@ public class ApiHandlerImpl implements ApiHandler {
         // [2] parse transaction type
         switch (cmd) {
         case TRANSFER:
-            return semuxApi.transfer(value,from,to,fee,data);
+            return semuxApi.transfer(value, from, to, fee, data);
         case DELEGATE:
-            return semuxApi.registerDelegate(from,fee,data);
+            return semuxApi.registerDelegate(from, fee, data);
         case VOTE:
-            return semuxApi.vote(from,to,value,fee);
+            return semuxApi.vote(from, to, value, fee);
         case UNVOTE:
-            return semuxApi.unvote(from,to,value,fee);
+            return semuxApi.unvote(from, to, value, fee);
         default:
             return semuxApi.failure("Unsupported transaction type: " + cmd.toString());
         }
