@@ -8,6 +8,10 @@ package org.semux.util;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.junit.Test;
 import org.semux.crypto.Hex;
@@ -61,6 +65,46 @@ public class SimpleDecoderTest {
         assertEquals(long2, dec.readLong());
         assertArrayEquals(bytes2, dec.readBytes());
         assertEquals(string2, dec.readString());
+    }
+
+    @Test
+    public void testSetEncodingVlq() {
+
+        Set<Long> set = new TreeSet<>();
+        set.add(1l);
+        set.add(123141515234234l);
+        long l = 123l;
+        String s = "hello";
+        SimpleEncoder enc = new SimpleEncoder();
+        // enc.writeLong(l);
+        enc.writeLongSet(set, true);
+        // enc.writeString(s);
+
+        SimpleDecoder dec = new SimpleDecoder(enc.toBytes());
+
+        // assertEquals(l, dec.readLong());
+        assertTrue(set.equals(dec.readLongSet(true)));
+        // assertEquals(s, dec.readString());
+    }
+
+    @Test
+    public void testSetEncoding() {
+
+        Set<Long> set = new TreeSet<>();
+        set.add(1l);
+        set.add(123141515234234l);
+        long l = 123l;
+        String s = "hello";
+        SimpleEncoder enc = new SimpleEncoder();
+        enc.writeLong(l);
+        enc.writeLongSet(set, false);
+        enc.writeString(s);
+
+        SimpleDecoder dec = new SimpleDecoder(enc.toBytes());
+
+        assertEquals(l, dec.readLong());
+        assertTrue(set.equals(dec.readLongSet(false)));
+        assertEquals(s, dec.readString());
     }
 
     @Test

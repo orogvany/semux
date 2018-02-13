@@ -258,23 +258,41 @@ public class BlockchainImplTest {
     }
 
     @Test
-    public void testValidatorStates() {
+    public void testValidatorStats() {
         byte[] address = Bytes.random(20);
 
         assertEquals(0, chain.getValidatorStats(address).getBlocksForged());
         assertEquals(0, chain.getValidatorStats(address).getTurnsHit());
         assertEquals(0, chain.getValidatorStats(address).getTurnsMissed());
 
-        chain.adjustValidatorStats(address, StatsType.FORGED, 1);
+        chain.adjustValidatorStats(1l, address, StatsType.FORGED, 1);
         assertEquals(1, chain.getValidatorStats(address).getBlocksForged());
 
-        chain.adjustValidatorStats(address, StatsType.HIT, 1);
+        chain.adjustValidatorStats(1l, address, StatsType.HIT, 1);
         assertEquals(1, chain.getValidatorStats(address).getTurnsHit());
 
-        chain.adjustValidatorStats(address, StatsType.MISSED, 1);
+        chain.adjustValidatorStats(1l, address, StatsType.MISSED, 1);
         assertEquals(1, chain.getValidatorStats(address).getTurnsMissed());
-        chain.adjustValidatorStats(address, StatsType.MISSED, 1);
+        chain.adjustValidatorStats(1l, address, StatsType.MISSED, 1);
         assertEquals(2, chain.getValidatorStats(address).getTurnsMissed());
+    }
+
+    @Test
+    public void testRecentValidatorStats() {
+        byte[] address = Bytes.random(20);
+        assertEquals(0, chain.getValidatorStats(address).getBlocksForged());
+
+        Long interval = 10l;
+        for (int i = 0; i < 10; i++) {
+            chain.adjustValidatorStats(i * interval, address, StatsType.FORGED, 1);
+            chain.adjustValidatorStats(i * interval + 1, address, StatsType.MISSED, 1);
+            chain.adjustValidatorStats(i * interval + 2, address, StatsType.MISSED, 1);
+            chain.adjustValidatorStats(i * interval + 3, address, StatsType.HIT, 1);
+        }
+        Long blockNum = 100l;
+        assertEquals(5, chain.getRecentValidatorStats(blockNum, address).getRecentBlocksForged(blockNum, 50l));
+        assertEquals(10, chain.getRecentValidatorStats(blockNum, address).getRecentTurnsMissed(blockNum, 50l));
+        assertEquals(5, chain.getRecentValidatorStats(blockNum, address).getRecentTurnsHit(blockNum, 50l));
     }
 
     private Block createBlock(long number) {
