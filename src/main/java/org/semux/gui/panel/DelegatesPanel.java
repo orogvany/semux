@@ -38,8 +38,9 @@ import javax.swing.table.TableRowSorter;
 import org.semux.Kernel;
 import org.semux.Network;
 import org.semux.config.Config;
+import org.semux.config.Constants;
 import org.semux.core.Blockchain;
-import org.semux.core.BlockchainImpl.ValidatorStats;
+import org.semux.core.BlockchainImpl.RecentValidatorStats;
 import org.semux.core.PendingManager;
 import org.semux.core.Transaction;
 import org.semux.core.TransactionType;
@@ -151,13 +152,13 @@ public class DelegatesPanel extends JPanel implements ActionListener {
         groupLayout.setHorizontalGroup(
             groupLayout.createParallelGroup(Alignment.TRAILING)
                 .addGroup(groupLayout.createSequentialGroup()
-                    .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 640, Short.MAX_VALUE)
-                    .addGap(18)
-                    .addGroup(groupLayout.createParallelGroup(Alignment.TRAILING, false)
-                        .addComponent(votePanel, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
-                        .addComponent(selectFrom, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
-                        .addComponent(label, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
-                        .addComponent(delegateRegistrationPanel, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)))
+                        .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 640, Short.MAX_VALUE)
+                        .addGap(18)
+                        .addGroup(groupLayout.createParallelGroup(Alignment.TRAILING, false)
+                                .addComponent(votePanel, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
+                                .addComponent(selectFrom, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
+                                .addComponent(label, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)
+                                .addComponent(delegateRegistrationPanel, GroupLayout.DEFAULT_SIZE, 210, Short.MAX_VALUE)))
         );
         groupLayout.setVerticalGroup(
             groupLayout.createParallelGroup(Alignment.LEADING)
@@ -413,14 +414,19 @@ public class DelegatesPanel extends JPanel implements ActionListener {
             byte[] voter = acc.getKey().toAddress();
             Blockchain chain = kernel.getBlockchain();
             DelegateState ds = chain.getDelegateState();
+            Long currentBlock = chain.getLatestBlockNumber();
+            // default to 7 days, but we can add configuration for dynamic re-updating of
+            // this for various time periods
+            long defaultTimePeriod = Constants.BLOCKS_PER_DAY * 7;
+
             for (WalletDelegate wd : delegates) {
                 long vote = ds.getVote(voter, wd.getAddress());
                 wd.setVotesFromMe(vote);
 
-                ValidatorStats s = chain.getValidatorStats(wd.getAddress());
-                wd.setNumberOfBlocksForged(s.getBlocksForged());
-                wd.setNumberOfTurnsHit(s.getTurnsHit());
-                wd.setNumberOfTurnsMissed(s.getTurnsMissed());
+                RecentValidatorStats s = chain.getRecentValidatorStats(currentBlock, wd.getAddress());
+                wd.setNumberOfBlocksForged(s.getRecentBlocksForged(currentBlock, defaultTimePeriod));
+                wd.setNumberOfTurnsHit(s.getRecentTurnsHit(currentBlock, defaultTimePeriod));
+                wd.setNumberOfTurnsMissed(s.getRecentTurnsMissed(currentBlock, defaultTimePeriod));
             }
         }
 

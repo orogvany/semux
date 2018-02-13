@@ -7,6 +7,8 @@
 package org.semux.util;
 
 import java.io.UnsupportedEncodingException;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.semux.util.exception.SimpleCodecException;
 
@@ -127,5 +129,21 @@ public class SimpleDecoder {
      */
     protected long unsignedInt(int i) {
         return i & 0x00000000ffffffffL;
+    }
+
+    /**
+     * Reads a Set of Longs
+     */
+    public Set<Long> readLongSet(boolean vlq) {
+        int len = vlq ? readSize() : readInt();
+        // 8 bytes per value
+        len = len / 8;
+
+        require(len);
+        Set<Long> set = new TreeSet<>();
+        for (int i = 0; i < len; i++) {
+            set.add(readLong());
+        }
+        return set;
     }
 }

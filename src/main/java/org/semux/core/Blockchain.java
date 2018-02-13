@@ -9,6 +9,7 @@ package org.semux.core;
 import java.util.List;
 
 import org.semux.core.BlockchainImpl.ValidatorStats;
+import org.semux.core.BlockchainImpl.RecentValidatorStats;
 import org.semux.core.state.AccountState;
 import org.semux.core.state.DelegateState;
 
@@ -179,6 +180,14 @@ public interface Blockchain {
      * @return
      */
     ValidatorStats getValidatorStats(byte[] address);
+
+    /**
+     * Returns the statistics of a validator.
+     *
+     * @param address
+     * @return
+     */
+    RecentValidatorStats getRecentValidatorStats(long currentBlockNumber, byte[] address);
 
     /**
      * Register a blockchain listener.

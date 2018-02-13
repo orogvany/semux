@@ -8,8 +8,12 @@ package org.semux.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.semux.config.Config;
@@ -33,14 +37,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Blockchain implementation.
- * 
+ *
  * <pre>
  * index DB structure:
- * 
+ *
  * [0] => [latest_block_number]
  * [1] => [validators]
  * [2, address] => [validator_stats]
- * 
+ *
  * [3, block_hash] => [block_number]
  * [4, transaction_hash] => [block_number, from, to] | [coinbase_transaction]
  * [5, address, n] => [transaction_hash]
@@ -48,13 +52,13 @@ import org.slf4j.LoggerFactory;
  *
  * <pre>
  * block DB structure:
- * 
+ *
  * [0, block_number] => [block_header]
  * [1, block_number] => [block_transactions]
  * [2, block_number] => [block_results]
  * [3, block_number] => [block_votes]
  * </pre>
- * 
+ *
  */
 public class BlockchainImpl implements Blockchain {
 
@@ -66,11 +70,15 @@ public class BlockchainImpl implements Blockchain {
     protected static final byte TYPE_BLOCK_HASH = 3;
     protected static final byte TYPE_TRANSACTION_HASH = 4;
     protected static final byte TYPE_ACCOUNT_TRANSACTION = 5;
+    protected static final byte TYPE_RECENT_VALIDATOR_STATS = 6;
 
     protected static final byte TYPE_BLOCK_HEADER = 0;
     protected static final byte TYPE_BLOCK_TRANSACTIONS = 1;
     protected static final byte TYPE_BLOCK_RESULTS = 2;
     protected static final byte TYPE_BLOCK_VOTES = 3;
+
+    // how long to report validator stats for
+    public static final long VALIDATOR_STATS_MAX_HISTORY_BLOCKS = Constants.BLOCKS_PER_DAY * 30;
 
     protected enum StatsType {
         FORGED, HIT, MISSED
@@ -91,7 +99,7 @@ public class BlockchainImpl implements Blockchain {
 
     /**
      * Create a blockchain instance.
-     * 
+     *
      * @param factory
      */
     public BlockchainImpl(Config config, DbFactory factory) {
@@ -313,11 +321,12 @@ public class BlockchainImpl implements Blockchain {
             // [5] update validator statistics
             List<String> validators = getValidators();
             String primary = config.getPrimaryValidator(validators, number, 0);
-            adjustValidatorStats(block.getCoinbase(), StatsType.FORGED, 1);
+            Long blockNumber = block.getNumber();
+            adjustValidatorStats(blockNumber, block.getCoinbase(), StatsType.FORGED, 1);
             if (primary.equals(Hex.encode(block.getCoinbase()))) {
-                adjustValidatorStats(Hex.decode0x(primary), StatsType.HIT, 1);
+                adjustValidatorStats(blockNumber, Hex.decode0x(primary), StatsType.HIT, 1);
             } else {
-                adjustValidatorStats(Hex.decode0x(primary), StatsType.MISSED, 1);
+                adjustValidatorStats(blockNumber, Hex.decode0x(primary), StatsType.MISSED, 1);
             }
         }
 
@@ -389,10 +398,22 @@ public class BlockchainImpl implements Blockchain {
         return (value == null) ? new ValidatorStats(0, 0, 0) : ValidatorStats.fromBytes(value);
     }
 
+    @Override
+    public RecentValidatorStats getRecentValidatorStats(long currentBlockNumber, byte[] address) {
+
+        byte[] key = Bytes.merge(TYPE_RECENT_VALIDATOR_STATS, address);
+        byte[] value = indexDB.get(key);
+
+        return (value == null)
+                ? new RecentValidatorStats(Collections.emptySet(), Collections.emptySet(), Collections.emptySet())
+                : RecentValidatorStats.fromBytes(value);
+    }
+
     /**
      * Updates the validator set.
-     * 
+     *
      * @param number
+     *            number of validators
      */
     protected void updateValidators(long number) {
         List<String> validators = new ArrayList<>();
@@ -414,7 +435,9 @@ public class BlockchainImpl implements Blockchain {
 
     /**
      * Adjusts validator statistics.
-     * 
+     *
+     * @param blockNumber
+     *            block number
      * @param address
      *            validator address
      * @param type
@@ -422,32 +445,43 @@ public class BlockchainImpl implements Blockchain {
      * @param delta
      *            difference
      */
-    protected void adjustValidatorStats(byte[] address, StatsType type, long delta) {
-        byte[] key = Bytes.merge(TYPE_VALIDATOR_STATS, address);
-        byte[] value = indexDB.get(key);
+    protected void adjustValidatorStats(Long blockNumber, byte[] address, StatsType type, long delta) {
+        byte[] statsKey = Bytes.merge(TYPE_VALIDATOR_STATS, address);
+        byte[] recentStatsKey = Bytes.merge(TYPE_RECENT_VALIDATOR_STATS, address);
 
-        ValidatorStats stats = (value == null) ? new ValidatorStats(0, 0, 0) : ValidatorStats.fromBytes(value);
+        byte[] statsValue = indexDB.get(statsKey);
+        byte[] recentStatsValue = indexDB.get(recentStatsKey);
+
+        ValidatorStats stats = (statsValue == null) ? new ValidatorStats(0, 0, 0)
+                : ValidatorStats.fromBytes(statsValue);
+        RecentValidatorStats recentStats = (recentStatsValue == null)
+                ? new RecentValidatorStats(Collections.emptySet(), Collections.emptySet(), Collections.emptySet())
+                : RecentValidatorStats.fromBytes(recentStatsValue);
 
         switch (type) {
         case FORGED:
             stats.setBlocksForged(stats.getBlocksForged() + delta);
+            recentStats.addRecentBlockForged(blockNumber);
             break;
         case HIT:
             stats.setTurnsHit(stats.getTurnsHit() + delta);
+            recentStats.addRecentTurnsHit(blockNumber);
             break;
         case MISSED:
             stats.setTurnsMissed(stats.getTurnsMissed() + delta);
+            recentStats.addRecentTurnsMissed(blockNumber);
             break;
         default:
             break;
         }
 
-        indexDB.put(key, stats.toBytes());
+        indexDB.put(statsKey, stats.toBytes());
+        indexDB.put(recentStatsKey, recentStats.toBytes());
     }
 
     /**
      * Sets the total number of transaction of an account.
-     * 
+     *
      * @param address
      * @param total
      */
@@ -457,7 +491,7 @@ public class BlockchainImpl implements Blockchain {
 
     /**
      * Adds a transaction to an account.
-     * 
+     *
      * @param tx
      * @param address
      */
@@ -469,13 +503,100 @@ public class BlockchainImpl implements Blockchain {
 
     /**
      * Returns the N-th transaction index key of an account.
-     * 
+     *
      * @param address
      * @param n
      * @return
      */
     protected byte[] getNthTransactionIndexKey(byte[] address, int n) {
         return Bytes.merge(Bytes.of(TYPE_ACCOUNT_TRANSACTION), address, Bytes.of(n));
+    }
+
+    public static class RecentValidatorStats {
+
+        private Set<Long> recentBlocksForged = new TreeSet<>();
+        private Set<Long> recentTurnsHit = new TreeSet<>();
+        private Set<Long> recentTurnsMissed = new TreeSet<>();
+
+        public RecentValidatorStats(Set<Long> recentBlocksForged, Set<Long> recentTurnsHit,
+                Set<Long> recentTurnsMissed) {
+            this.recentBlocksForged.addAll(recentBlocksForged);
+            this.recentTurnsHit.addAll(recentTurnsHit);
+            this.recentTurnsMissed.addAll(recentTurnsMissed);
+        }
+
+        public long getRecentBlocksForged(Long currentBlock, Long timePeriod) {
+            return count(currentBlock - timePeriod, recentBlocksForged);
+        }
+
+        public long getRecentTurnsHit(Long currentBlock, Long timePeriod) {
+            return count(currentBlock - timePeriod, recentTurnsHit);
+        }
+
+        public long getRecentTurnsMissed(Long currentBlock, Long timePeriod) {
+            return count(currentBlock - timePeriod, recentTurnsMissed);
+        }
+
+        public void addRecentBlockForged(Long blockNumber) {
+            recentBlocksForged.add(blockNumber);
+            prune(blockNumber, recentBlocksForged);
+        }
+
+        public void addRecentTurnsHit(Long blockNumber) {
+            recentTurnsHit.add(blockNumber);
+            prune(blockNumber, recentTurnsHit);
+        }
+
+        public void addRecentTurnsMissed(Long blockNumber) {
+            recentTurnsMissed.add(blockNumber);
+            prune(blockNumber, recentTurnsMissed);
+        }
+
+        private long count(Long oldestBlock, Set<Long> blocks) {
+            long count = 0;
+            for (Long block : blocks) {
+                if (block >= oldestBlock) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private void prune(Long blockNumber, Set<Long> blocks) {
+            Iterator<Long> iterator = blocks.iterator();
+            while (iterator.hasNext()) {
+                Long block = iterator.next();
+                if (block >= (blockNumber - VALIDATOR_STATS_MAX_HISTORY_BLOCKS)) {
+                    // sorted set, so can break
+                    break;
+                } else {
+                    iterator.remove();
+                }
+            }
+        }
+
+        public byte[] toBytes() {
+            SimpleEncoder enc = new SimpleEncoder();
+            // if historical value changes in future, we can trigger recalculation
+            enc.writeLong(VALIDATOR_STATS_MAX_HISTORY_BLOCKS);
+            enc.writeLongSet(recentBlocksForged, true);
+            enc.writeLongSet(recentTurnsHit, true);
+            enc.writeLongSet(recentTurnsMissed, true);
+            return enc.toBytes();
+        }
+
+        public static RecentValidatorStats fromBytes(byte[] bytes) {
+            SimpleDecoder dec = new SimpleDecoder(bytes);
+            Long historicalBlockSize = dec.readLong();
+            if (!historicalBlockSize.equals(VALIDATOR_STATS_MAX_HISTORY_BLOCKS)) {
+                return new RecentValidatorStats(Collections.emptySet(), Collections.emptySet(), Collections.emptySet());
+            }
+            Set<Long> recentBlocksForged = dec.readLongSet(true);
+            Set<Long> recentTurnsHit = dec.readLongSet(true);
+            Set<Long> recentTurnsMissed = dec.readLongSet(true);
+            return new RecentValidatorStats(recentBlocksForged, recentTurnsHit, recentTurnsMissed);
+
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ package org.semux.util;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Set;
 
 import org.semux.util.exception.SimpleCodecException;
 
@@ -112,6 +113,17 @@ public class SimpleEncoder {
             } else {
                 out.write((byte) buf[i++]);
             }
+        }
+    }
+
+    public void writeLongSet(Set<Long> set, boolean vlq) {
+        if (vlq) {
+            writeSize(set.size() * 8);
+        } else {
+            writeInt(set.size() * 8);
+        }
+        for (Long val : set) {
+            writeLong(val);
         }
     }
 }
