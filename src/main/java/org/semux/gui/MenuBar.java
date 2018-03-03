@@ -33,7 +33,6 @@ import org.semux.gui.dialog.ChangePasswordDialog;
 import org.semux.gui.dialog.ExportPrivateKeyDialog;
 import org.semux.gui.dialog.InputDialog;
 import org.semux.message.GuiMessages;
-import org.semux.util.SystemUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,9 +107,6 @@ public class MenuBar extends JMenuBar implements ActionListener {
         Action action = Action.valueOf(e.getActionCommand());
 
         switch (action) {
-        case EXIT:
-            SystemUtil.exitAsync(0);
-            break;
         case RECOVER_ACCOUNTS:
             recoverAccounts();
             break;

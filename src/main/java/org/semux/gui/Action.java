@@ -53,8 +53,6 @@ public enum Action {
 
     CHANGE_PASSWORD,
 
-    EXIT,
-
     ABOUT,
 
     HELP,
