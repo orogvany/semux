@@ -50,16 +50,6 @@ public class MenuBar extends JMenuBar implements ActionListener {
         this.gui = gui;
         this.frame = frame;
 
-        JMenu menuFile = new JMenu(GuiMessages.get("File"));
-        this.add(menuFile);
-
-        JMenuItem itemExit = new JMenuItem(GuiMessages.get("Exit"));
-        itemExit.setName("itemExit");
-        itemExit.setMnemonic(KeyEvent.VK_X);
-        itemExit.setActionCommand(Action.EXIT.name());
-        itemExit.addActionListener(this);
-        menuFile.add(itemExit);
-
         JMenu menuWallet = new JMenu(GuiMessages.get("Wallet"));
         this.add(menuWallet);
 
