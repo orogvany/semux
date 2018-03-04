@@ -47,12 +47,16 @@ public class ConsoleDialogTest extends AssertJSwingJUnitTestCase {
         JTextComponentFixture consoleText = console.textBox("txtConsole").requireVisible();
 
         // help
-        console.textBox("txtInput").requireVisible().requireEditable().enterText("help")
+        console.textBox("txtInput")
+                .requireVisible()
+                .enterText("help")
                 .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         await().until(() -> consoleText.text().contains("transfer"));
 
         // listAccounts
-        console.textBox("txtInput").requireVisible().requireEditable().enterText("listAccounts")
+        console.textBox("txtInput")
+                .requireVisible()
+                .enterText("listAccounts")
                 .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         String walletAddress = kernelRule1.getKernel().getWallet().getAccount(0).toAddressString();
 
