@@ -44,11 +44,11 @@ public class ConsoleDialogTest extends AssertJSwingJUnitTestCase {
         JTextComponentFixture consoleText = console.textBox("txtConsole");
 
         // help
-        console.textBox("txtInput").enterText("help\n");
+        console.textBox("txtInput").requireEditable().enterText("help\n");
         await().until(() -> consoleText.text().contains("transfer"));
 
         // listAccounts
-        console.textBox("txtInput").enterText("listAccounts\n");
+        console.textBox("txtInput").requireEditable().enterText("listAccounts\n");
         String walletAddress = kernelRule1.getKernel().getWallet().getAccount(0).toAddressString();
 
         await().until(() -> consoleText.text().contains(walletAddress));
