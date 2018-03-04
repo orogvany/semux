@@ -8,6 +8,9 @@ package org.semux.gui.dialog;
 
 import static org.awaitility.Awaitility.await;
 
+import java.awt.event.KeyEvent;
+
+import org.assertj.swing.core.KeyPressInfo;
 import org.assertj.swing.edt.GuiActionRunner;
 import org.assertj.swing.fixture.DialogFixture;
 import org.assertj.swing.fixture.FrameFixture;
@@ -41,14 +44,16 @@ public class ConsoleDialogTest extends AssertJSwingJUnitTestCase {
         FrameFixture window = new FrameFixture(robot(), application);
         window.show().requireVisible().moveToFront();
         DialogFixture console = window.dialog("Console").requireVisible();
-        JTextComponentFixture consoleText = console.textBox("txtConsole");
+        JTextComponentFixture consoleText = console.textBox("txtConsole").requireVisible();
 
         // help
-        console.textBox("txtInput").requireEditable().enterText("help\n");
+        console.textBox("txtInput").requireEditable().enterText("help")
+                .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         await().until(() -> consoleText.text().contains("transfer"));
 
         // listAccounts
-        console.textBox("txtInput").requireEditable().enterText("listAccounts\n");
+        console.textBox("txtInput").requireEditable().enterText("listAccounts")
+                .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         String walletAddress = kernelRule1.getKernel().getWallet().getAccount(0).toAddressString();
 
         await().until(() -> consoleText.text().contains(walletAddress));
