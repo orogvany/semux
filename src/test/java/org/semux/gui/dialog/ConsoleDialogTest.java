@@ -49,14 +49,16 @@ public class ConsoleDialogTest extends AssertJSwingJUnitTestCase {
         // help
         console.textBox("txtInput")
                 .requireVisible()
-                .enterText("help")
+                .requireEditable()
+                .setText("help")
                 .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         await().until(() -> consoleText.text().contains("transfer"));
 
         // listAccounts
         console.textBox("txtInput")
                 .requireVisible()
-                .enterText("listAccounts")
+                .requireEditable()
+                .setText("listAccounts")
                 .pressAndReleaseKey(KeyPressInfo.keyCode(KeyEvent.VK_ENTER));
         String walletAddress = kernelRule1.getKernel().getWallet().getAccount(0).toAddressString();
 
