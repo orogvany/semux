@@ -16,7 +16,11 @@ import java.awt.event.WindowEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.JDialog;
 import javax.swing.JFrame;
@@ -43,6 +47,7 @@ public class ConsoleDialog extends JDialog implements ActionListener {
     private static final long serialVersionUID = 1L;
 
     public static final String HELP = "help";
+    private static final Pattern PATTERN_SPLIT_COMMAND = Pattern.compile("([^\"]\\S*|\".+?\")\\s*");
 
     private final transient SemuxApiServiceImpl api;
 
@@ -111,11 +116,11 @@ public class ConsoleDialog extends JDialog implements ActionListener {
      * @param commandString
      */
     private void callApi(String commandString) {
-        String[] commandParams = commandString.split(" ");
+        String[] commandParams = parseCommand(commandString);
 
         String command = commandParams[0];
 
-        // console only supports string parameters;
+        // console only supports string parameters
         int numParams = commandParams.length - 1;
         Class<?>[] classes = new Class[numParams];
         for (int i = 0; i < numParams; i++) {
@@ -136,6 +141,17 @@ public class ConsoleDialog extends JDialog implements ActionListener {
         } catch (InvocationTargetException | IllegalAccessException | JsonProcessingException e) {
             console.append(GuiMessages.get("MethodError", command));
         }
+    }
+
+    private static String[] parseCommand(String commandString) {
+        List<String> list = new ArrayList<>();
+        Matcher m = PATTERN_SPLIT_COMMAND.matcher(commandString);
+        while (m.find()) {
+            // remove quote character
+            list.add(m.group(1).replaceAll("\"", ""));
+        }
+
+        return list.toArray(new String[list.size()]);
     }
 
     private void printHelp() {
