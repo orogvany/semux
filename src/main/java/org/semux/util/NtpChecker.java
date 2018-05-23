@@ -11,9 +11,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Check if current clocktime has drifted from NTP
  */
-public class NTPChecker {
+public class NtpChecker {
 
-    private static final Logger logger = LoggerFactory.getLogger(NTPChecker.class);
+    private static final Logger logger = LoggerFactory.getLogger(NtpChecker.class);
     public static final String NTP_POOL = "pool.ntp.org";
 
     /**
