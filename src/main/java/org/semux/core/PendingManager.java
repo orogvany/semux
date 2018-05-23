@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -7,11 +7,9 @@
 package org.semux.core;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -46,7 +44,7 @@ public class PendingManager implements Runnable, BlockchainListener {
 
     private static final ThreadFactory factory = new ThreadFactory() {
 
-        private AtomicInteger cnt = new AtomicInteger(0);
+        private final AtomicInteger cnt = new AtomicInteger(0);
 
         @Override
         public Thread newThread(Runnable r) {
@@ -56,33 +54,34 @@ public class PendingManager implements Runnable, BlockchainListener {
 
     public static final long ALLOWED_TIME_DRIFT = TimeUnit.HOURS.toMillis(2);
 
-    private static final int QUEUE_MAX_SIZE = 64 * 1024;
-    private static final int POOL_MAX_SIZE = 8 * 1024;
-    private static final int DELAYED_MAX_SIZE = 16 * 1024;
-    private static final int PROCESSED_MAX_SIZE = 16 * 1024;
+    private static final int QUEUE_MAX_SIZE = 128 * 1024;
+    private static final int TRANSACTIONS_MAX_SIZE = 16 * 1024;
+    private static final int DELAYED_MAX_SIZE = 32 * 1024;
+    private static final int PROCESSED_MAX_SIZE = 32 * 1024;
 
-    private Kernel kernel;
+    private final Kernel kernel;
     private AccountState pendingAS;
     private DelegateState pendingDS;
 
     /**
      * Transaction queue.
      */
-    private LinkedList<Transaction> queue = new LinkedList<>();
+    private final LinkedList<Transaction> queue = new LinkedList<>();
 
     /**
      * Transaction pool.
      */
-    private Map<ByteArray, PendingTransaction> pool = new HashMap<>();
-    private List<PendingTransaction> transactions = new ArrayList<>();
+    private final List<PendingTransaction> transactions = new ArrayList<>();
 
     /**
      * Transaction cache.
      */
-    private Cache<ByteArray, Transaction> delayed = Caffeine.newBuilder().maximumSize(DELAYED_MAX_SIZE).build();
-    private Cache<ByteArray, Transaction> processed = Caffeine.newBuilder().maximumSize(PROCESSED_MAX_SIZE).build();
+    private final Cache<ByteArray, Transaction> delayed = Caffeine.newBuilder().maximumSize(DELAYED_MAX_SIZE).build();
+    private final Cache<ByteArray, Transaction> processed = Caffeine.newBuilder().maximumSize(PROCESSED_MAX_SIZE)
+            .build();
 
-    private ScheduledExecutorService exec;
+    private final ScheduledExecutorService exec;
+
     private ScheduledFuture<?> validateFuture;
 
     private volatile boolean isRunning;
@@ -155,7 +154,7 @@ public class PendingManager implements Runnable, BlockchainListener {
      * @param tx
      */
     public synchronized void addTransaction(Transaction tx) {
-        if (queue.size() < QUEUE_MAX_SIZE) {
+        if (queue.size() < QUEUE_MAX_SIZE && tx.validate(kernel.getConfig().network())) {
             queue.add(tx);
         }
     }
@@ -168,8 +167,11 @@ public class PendingManager implements Runnable, BlockchainListener {
      * @return The processing result
      */
     public synchronized ProcessTransactionResult addTransactionSync(Transaction tx) {
-        return tx.validate(kernel.getConfig().networkId()) ? processTransaction(tx, true)
-                : new ProcessTransactionResult(0, TransactionResult.Error.INVALID_FORMAT);
+        if (/* queue/transactions limits are ignored */ tx.validate(kernel.getConfig().network())) {
+            return processTransaction(tx, true);
+        } else {
+            return new ProcessTransactionResult(0, TransactionResult.Error.INVALID_FORMAT);
+        }
     }
 
     /**
@@ -183,30 +185,28 @@ public class PendingManager implements Runnable, BlockchainListener {
     }
 
     /**
-     * Returns pending transactions and corresponding results.
+     * Returns pending transactions, limited by the given total size in bytes.
      *
-     * @param limit
+     * @param byteLimit
      * @return
      */
-    public synchronized List<PendingTransaction> getPendingTransactions(int limit) {
+    public synchronized List<PendingTransaction> getPendingTransactions(int byteLimit) {
+        if (byteLimit < 0) {
+            throw new IllegalArgumentException("Limit can't be negative");
+        }
+
         List<PendingTransaction> txs = new ArrayList<>();
+        Iterator<PendingTransaction> it = transactions.iterator();
 
-        if (limit == -1) {
-            // returns all transactions if there is no limit
-            txs.addAll(transactions);
-        } else {
-            Iterator<PendingTransaction> it = transactions.iterator();
+        int size = 0;
+        while (it.hasNext()) {
+            PendingTransaction tx = it.next();
 
-            int size = 0;
-            while (it.hasNext()) {
-                PendingTransaction tx = it.next();
-
-                if (size + tx.transaction.size() > limit) {
-                    break;
-                } else {
-                    txs.add(tx);
-                    size += tx.transaction.size();
-                }
+            size += tx.transaction.size();
+            if (size > byteLimit) {
+                break;
+            } else {
+                txs.add(tx);
             }
         }
 
@@ -214,22 +214,12 @@ public class PendingManager implements Runnable, BlockchainListener {
     }
 
     /**
-     * Returns transactions in the pool, with the given total size limit.
-     *
-     * @param limit
-     * @return
-     */
-    public synchronized List<PendingTransaction> getTransactions(int limit) {
-        return getPendingTransactions(limit);
-    }
-
-    /**
-     * Returns all transactions in the pool.
+     * Returns all pending transactions.
      *
      * @return
      */
-    public synchronized List<PendingTransaction> getTransactions() {
-        return getPendingTransactions(-1);
+    public synchronized List<PendingTransaction> getPendingTransactions() {
+        return getPendingTransactions(Integer.MAX_VALUE);
     }
 
     /**
@@ -244,7 +234,6 @@ public class PendingManager implements Runnable, BlockchainListener {
 
         // clear transaction pool
         List<PendingTransaction> txs = new ArrayList<>(transactions);
-        pool.clear();
         transactions.clear();
 
         return txs;
@@ -265,7 +254,7 @@ public class PendingManager implements Runnable, BlockchainListener {
             }
 
             long t2 = System.currentTimeMillis();
-            logger.debug("Pending tx evaluation: # txs = {} / {},  time =  {} ms", accepted, txs.size(), t2 - t1);
+            logger.debug("Pending tx evaluation: # txs = {} / {},  time = {} ms", accepted, txs.size(), t2 - t1);
         }
     }
 
@@ -273,9 +262,7 @@ public class PendingManager implements Runnable, BlockchainListener {
     public synchronized void run() {
         Transaction tx;
 
-        while (pool.size() < POOL_MAX_SIZE
-                && (tx = queue.poll()) != null
-                && tx.getFee() >= kernel.getConfig().minTransactionFee()) {
+        while (transactions.size() < TRANSACTIONS_MAX_SIZE && (tx = queue.poll()) != null) {
 
             // reject already executed transactions
             ByteArray key = ByteArray.of(tx.getHash());
@@ -283,12 +270,14 @@ public class PendingManager implements Runnable, BlockchainListener {
                 continue;
             }
 
-            if (tx.validate(kernel.getConfig().networkId()) && processTransaction(tx, true).accepted >= 1) {
-                // exit after one success transaction
+            // process the transaction
+            boolean accepted = processTransaction(tx, true).accepted >= 1;
+            processed.put(key, tx);
+
+            // quit after one accepted transaction
+            if (accepted) {
                 return;
             }
-
-            processed.put(key, tx);
         }
     }
 
@@ -304,8 +293,6 @@ public class PendingManager implements Runnable, BlockchainListener {
      */
     protected ProcessTransactionResult processTransaction(Transaction tx, boolean relay) {
 
-        // NOTE: assume transaction format is valid
-
         int cnt = 0;
         long now = System.currentTimeMillis();
 
@@ -318,7 +305,13 @@ public class PendingManager implements Runnable, BlockchainListener {
         // a time drift of 2 hours is allowed by default
         if (tx.getTimestamp() < now - kernel.getConfig().maxTransactionTimeDrift()
                 || tx.getTimestamp() > now + kernel.getConfig().maxTransactionTimeDrift()) {
-            return new ProcessTransactionResult(cnt, TransactionResult.Error.INVALID_TIMESTAMP);
+            return new ProcessTransactionResult(0, TransactionResult.Error.INVALID_TIMESTAMP);
+        }
+
+        // report INVALID_NONCE error to prevent the transaction from being silently
+        // ignored due to a low nonce
+        if (tx.getNonce() < getNonce(tx.getFrom())) {
+            return new ProcessTransactionResult(0, TransactionResult.Error.INVALID_NONCE);
         }
 
         // Check transaction nonce: pending transactions must be executed sequentially
@@ -340,7 +333,6 @@ public class PendingManager implements Runnable, BlockchainListener {
                 // which are ready to be proposed to the network.
                 PendingTransaction pendingTransaction = new PendingTransaction(tx, result);
                 transactions.add(pendingTransaction);
-                pool.put(createKey(tx), pendingTransaction);
                 cnt++;
 
                 // relay transaction
@@ -391,7 +383,7 @@ public class PendingManager implements Runnable, BlockchainListener {
 
         public final TransactionResult transactionResult;
 
-        private PendingTransaction(Transaction transaction, TransactionResult transactionResult) {
+        public PendingTransaction(Transaction transaction, TransactionResult transactionResult) {
             this.transaction = transaction;
             this.transactionResult = transactionResult;
         }

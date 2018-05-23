@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -24,52 +24,118 @@ import java.util.Collection;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.modules.junit4.PowerMockRunnerDelegate;
-import org.semux.cli.SemuxCLI;
-import org.semux.gui.SemuxGUI;
+import org.semux.cli.SemuxCli;
+import org.semux.gui.SemuxGui;
 import org.semux.util.SystemUtil;
 import org.semux.util.SystemUtil.OsName;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockRunnerDelegate(Parameterized.class)
 @PrepareForTest({ ProcessBuilder.class, Process.class, Wrapper.class, SystemUtil.class })
+@PowerMockIgnore({ "jdk.internal.*", "javax.management.*" })
 public class WrapperTest {
 
     @Parameterized.Parameters
     public static Collection<Object[]> data() {
+        String splash = String.format("-splash:%s", Paths.get("resources", "splash.png").toAbsolutePath());
         return Arrays
                 .asList(new Object[][] {
                         { new String[] { "--gui", "--jvmoptions", "-Xmx1G -Xms1G" },
-                                new String[] { getJavaBinPath(), "-Xmx1G", "-Xms1G", "-cp", "semux.jar",
-                                        SemuxGUI.class.getCanonicalName() },
-                                null },
+                                new String[] {
+                                        getJavaBinPath(),
+                                        "-cp", null,
+                                        "-Xmx1G", "-Xms1G",
+                                        "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                        "-Dlog4j2.shutdownHookEnabled=false",
+                                        "-Dlog4j2.disableJmx=true",
+                                        splash,
+                                        SemuxGui.class.getCanonicalName() },
+                                null,
+                                false },
+
                         { new String[] { "--gui" },
-                                new String[] { getJavaBinPath(), "-Xmx1600M", "-cp", "semux.jar",
-                                        SemuxGUI.class.getCanonicalName() },
-                                2000L * 1024 * 1024 },
-                        { new String[] { "--cli" }, new String[] { getJavaBinPath(), "-Xmx1600M", "-cp", "semux.jar",
-                                SemuxCLI.class.getCanonicalName() }, 2000L * 1024 * 1024 },
+                                new String[] {
+                                        getJavaBinPath(),
+                                        "-cp", null,
+                                        "-Xmx1600M",
+                                        "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                        "-Dlog4j2.shutdownHookEnabled=false",
+                                        "-Dlog4j2.disableJmx=true",
+                                        splash,
+                                        SemuxGui.class.getCanonicalName() },
+                                2000L * 1024 * 1024,
+                                false },
+
+                        { new String[] { "--cli" }, new String[] {
+                                getJavaBinPath(),
+                                "-cp", null,
+                                "-Xmx1600M",
+                                "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                "-Dlog4j2.shutdownHookEnabled=false",
+                                "-Dlog4j2.disableJmx=true",
+                                SemuxCli.class.getCanonicalName() },
+                                2000L * 1024 * 1024,
+                                false },
+
                         { new String[] { "--gui" },
-                                new String[] { getJavaBinPath(), String.format("-Xmx%dM", MINIMUM_HEAP_SIZE_MB), "-cp",
-                                        "semux.jar",
-                                        SemuxGUI.class.getCanonicalName() },
-                                MINIMUM_HEAP_SIZE_MB * 1024 * 1024 - 1 },
+                                new String[] {
+                                        getJavaBinPath(),
+                                        "-cp", null,
+                                        String.format("-Xmx%dM", MINIMUM_HEAP_SIZE_MB),
+                                        "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                        "-Dlog4j2.shutdownHookEnabled=false",
+                                        "-Dlog4j2.disableJmx=true",
+                                        splash,
+                                        SemuxGui.class.getCanonicalName() },
+                                MINIMUM_HEAP_SIZE_MB * 1024 * 1024 - 1,
+                                false },
+
                         { new String[] { "--cli" },
-                                new String[] { getJavaBinPath(), String.format("-Xmx%dM", MINIMUM_HEAP_SIZE_MB), "-cp",
-                                        "semux.jar",
-                                        SemuxCLI.class.getCanonicalName() },
-                                MINIMUM_HEAP_SIZE_MB * 1024 * 1024 - 1 } });
+                                new String[] {
+                                        getJavaBinPath(),
+                                        "-cp", null,
+                                        String.format("-Xmx%dM", MINIMUM_HEAP_SIZE_MB),
+                                        "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                        "-Dlog4j2.shutdownHookEnabled=false",
+                                        "-Dlog4j2.disableJmx=true",
+                                        SemuxCli.class.getCanonicalName() },
+                                MINIMUM_HEAP_SIZE_MB * 1024 * 1024 - 1,
+                                false },
+
+                        // when module system is available
+                        { new String[] { "--gui" },
+                                new String[] {
+                                        getJavaBinPath(),
+                                        "-cp", null,
+                                        "-Xmx1600M",
+                                        "-Dlog4j2.garbagefreeThreadContextMap=true",
+                                        "-Dlog4j2.shutdownHookEnabled=false",
+                                        "-Dlog4j2.disableJmx=true",
+                                        "--add-opens=java.base/sun.net.dns=ALL-UNNAMED",
+                                        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+                                        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+                                        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+                                        splash,
+                                        SemuxGui.class.getCanonicalName() },
+                                2000L * 1024 * 1024,
+                                true },
+                });
     }
 
     String[] inputArgs, javaArgs;
     Long mockAvailableMB;
+    Boolean isModuleSystemAvailable;
 
-    public WrapperTest(String[] inputArgs, String[] javaArgs, Long mockAvailableBytes) {
+    public WrapperTest(String[] inputArgs, String[] javaArgs, Long mockAvailableBytes,
+            Boolean isModuleSystemAvailable) {
         this.inputArgs = inputArgs;
         this.javaArgs = javaArgs;
         this.mockAvailableMB = mockAvailableBytes;
+        this.isModuleSystemAvailable = isModuleSystemAvailable;
     }
 
     @Test
@@ -89,13 +155,18 @@ public class WrapperTest {
             when(SystemUtil.getAvailableMemorySize()).thenReturn(mockAvailableMB);
         }
 
+        if (isModuleSystemAvailable) {
+            when(SystemUtil.isJavaPlatformModuleSystemAvailable()).thenReturn(true);
+        }
+
         // execution
         Wrapper.main(inputArgs);
 
         // verify
+        javaArgs[2] = System.getProperty("java.class.path"); // Read classpath from the JVM fork (test)
         verify(processBuilderMock).command(javaArgs);
         verifyStatic(SystemUtil.class);
-        SystemUtil.exit(0);
+        SystemUtil.exit(SystemUtil.Code.OK);
     }
 
     protected static String getJavaBinPath() {

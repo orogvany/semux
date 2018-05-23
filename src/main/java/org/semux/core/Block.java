@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -8,11 +8,13 @@ package org.semux.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 import org.apache.commons.lang3.tuple.Pair;
-import org.semux.crypto.EdDSA.Signature;
+import org.semux.Network;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key.Signature;
 import org.semux.util.MerkleUtil;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
@@ -25,17 +27,17 @@ public class Block {
     /**
      * The block header.
      */
-    private BlockHeader header;
+    private final BlockHeader header;
 
     /**
      * The transactions.
      */
-    private List<Transaction> transactions;
+    private final List<Transaction> transactions;
 
     /**
      * The transaction results.
      */
-    private List<TransactionResult> results;
+    private final List<TransactionResult> results;
 
     /**
      * The BFT view and votes.
@@ -46,17 +48,18 @@ public class Block {
     // =========================
     // Auxiliary data
     // =========================
+
     /**
      * Encoding of transactions.
      */
-    protected byte[] encodedHeader;
-    protected byte[] encodedTransactions;
-    protected byte[] encodedResults;
+    protected final byte[] encodedHeader;
+    protected final byte[] encodedTransactions;
+    protected final byte[] encodedResults;
 
     /**
      * Transaction indexes
      */
-    protected List<Pair<Integer, Integer>> indexes = new ArrayList<>();
+    protected final List<Pair<Integer, Integer>> indexes = new ArrayList<>();
 
     /**
      * Create a new block, with no BFT information.
@@ -131,17 +134,37 @@ public class Block {
      *
      * @param header
      * @param transactions
+     * @param network
      * @return
      */
-    public static boolean validateTransactions(BlockHeader header, List<Transaction> transactions, byte networkId) {
+    public static boolean validateTransactions(BlockHeader header, List<Transaction> transactions, Network network) {
+        return validateTransactions(header, transactions, transactions, network);
+    }
+
+    /**
+     * Validates transactions in parallel, only doing those that have not already
+     * been calculated.
+     *
+     * @param header
+     *            block header
+     * @param unvalidatedTransactions
+     *            transactions needing validating
+     * @param allTransactions
+     *            all transactions within the block
+     * @param network
+     *            network
+     * @return
+     */
+    public static boolean validateTransactions(BlockHeader header, Collection<Transaction> unvalidatedTransactions,
+            List<Transaction> allTransactions, Network network) {
         // validate transactions
-        boolean valid = transactions.parallelStream().allMatch((tx) -> tx.validate(networkId));
+        boolean valid = unvalidatedTransactions.parallelStream().allMatch(tx -> tx.validate(network));
         if (!valid) {
             return false;
         }
 
         // validate transactions root
-        byte[] root = MerkleUtil.computeTransactionsRoot(transactions);
+        byte[] root = MerkleUtil.computeTransactionsRoot(allTransactions);
         return Arrays.equals(root, header.getTransactionsRoot());
     }
 
@@ -425,4 +448,5 @@ public class Block {
         return "Block [number = " + getNumber() + ", view = " + getView() + ", hash = " + Hex.encode(getHash())
                 + ", # txs = " + transactions.size() + ", # votes = " + votes.size() + "]";
     }
+
 }

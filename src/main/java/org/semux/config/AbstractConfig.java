@@ -1,14 +1,20 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.config;
 
+import static org.semux.core.Amount.Unit.MILLI_SEM;
+import static org.semux.core.Amount.Unit.SEM;
+import static org.semux.core.Amount.ZERO;
+
 import java.io.File;
 import java.io.FileInputStream;
+import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -17,12 +23,14 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import org.semux.Network;
+import org.semux.config.exception.ConfigException;
+import org.semux.core.Amount;
 import org.semux.core.TransactionType;
-import org.semux.core.Unit;
 import org.semux.crypto.Hash;
-import org.semux.gui.SemuxGUI;
 import org.semux.net.NodeManager.Node;
 import org.semux.net.msg.MessageCode;
+import org.semux.util.BigIntegerUtil;
 import org.semux.util.Bytes;
 import org.semux.util.StringUtil;
 import org.semux.util.SystemUtil;
@@ -39,15 +47,15 @@ public abstract class AbstractConfig implements Config {
     // =========================
     // General
     // =========================
+    protected String walletPassword;
     protected File dataDir;
-    protected byte networkId;
+    protected Network network;
     protected short networkVersion;
 
     protected int maxBlockTransactionsSize = 1024 * 1024;
-    protected long minTransactionFee = 5L * Unit.MILLI_SEM;
+    protected Amount minTransactionFee = MILLI_SEM.of(5);
     protected long maxTransactionTimeDrift = TimeUnit.HOURS.toMillis(2);
-    protected long minDelegateBurnAmount = 1000L * Unit.SEM;
-    protected long mandatoryUpgrade = Constants.BLOCKS_PER_DAY * 60L;
+    protected Amount minDelegateBurnAmount = SEM.of(1000);
 
     // =========================
     // P2P
@@ -74,6 +82,9 @@ public abstract class AbstractConfig implements Config {
             MessageCode.BFT_NEW_VIEW,
             MessageCode.BFT_PROPOSAL,
             MessageCode.BFT_VOTE));
+    protected List<String> netDnsSeedsMainNet = Collections
+            .unmodifiableList(Arrays.asList("mainnet.semux.org", "mainnet.semux.net"));
+    protected List<String> netDnsSeedsTestNet = Collections.singletonList("testnet.semux.org");
 
     // =========================
     // API
@@ -106,28 +117,46 @@ public abstract class AbstractConfig implements Config {
     // UI
     // =========================
     protected Locale locale = Locale.getDefault();
+    protected String uiUnit = "SEM";
+    protected int uiFractionDigits = 9;
+
+    // =========================
+    // Forks
+    // =========================
+    protected boolean forkUniformDistributionEnabled = true;
 
     /**
      * Create an {@link AbstractConfig} instance.
      *
      * @param dataDir
-     * @param networkId
+     * @param network
      * @param networkVersion
      */
-    protected AbstractConfig(String dataDir, byte networkId, short networkVersion) {
+    protected AbstractConfig(String dataDir, Network network, short networkVersion) {
         this.dataDir = new File(dataDir);
-        this.networkId = networkId;
+        this.network = network;
         this.networkVersion = networkVersion;
 
         init();
+        validate();
     }
 
     @Override
-    public long getBlockReward(long number) {
+    public File getFile() {
+        return new File(configDir(), CONFIG_FILE);
+    }
+
+    @Override
+    public String walletPassword() {
+        return walletPassword;
+    }
+
+    @Override
+    public Amount getBlockReward(long number) {
         if (number <= 25_000_000L) {
-            return 3L * Unit.SEM;
+            return SEM.of(3);
         } else {
-            return 0;
+            return ZERO;
         }
     }
 
@@ -148,9 +177,39 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
-    public String getPrimaryValidator(List<String> validators, long height, int view) {
-        byte[] key = Bytes.merge(Bytes.of(height), Bytes.of(view));
-        return validators.get((Hash.h256(key)[0] & 0xff) % validators.size());
+    public String getPrimaryValidator(List<String> validators, long height, int view, boolean uniformDist) {
+        if (uniformDist) {
+            return validators.get(getUniformDistPrimaryValidatorNumber(validators.size(), height, view));
+        } else {
+            byte[] key = Bytes.merge(Bytes.of(height), Bytes.of(view));
+            return validators.get((Hash.h256(key)[0] & 0xff) % validators.size());
+        }
+    }
+
+    private int getUniformDistPrimaryValidatorNumber(int size, long height, long view) {
+        // use round-robin for view 0
+        if (view == 0) {
+            return (int) (height % (long) size);
+        }
+
+        // here we ensure there will never be consecutive block forgers after view
+        // change
+        int deterministicRand;
+        final int prevDeterministicRand = getUniformDistPrimaryValidatorNumber(size, height, view - 1);
+        BigInteger subView = BigInteger.ZERO;
+        do {
+            BigInteger seed = BigIntegerUtil
+                    .random(BigInteger.valueOf(height))
+                    .xor(BigIntegerUtil.random(BigInteger.valueOf(view)))
+                    .add(subView);
+            deterministicRand = BigIntegerUtil
+                    .random(seed)
+                    .mod(BigInteger.valueOf(size))
+                    .intValue();
+            subView = subView.add(BigInteger.ONE);
+        } while (deterministicRand == prevDeterministicRand);
+
+        return deterministicRand;
     }
 
     @Override
@@ -158,7 +217,7 @@ public abstract class AbstractConfig implements Config {
         return String.format("%s/v%s-%s/%s/%s",
                 Constants.CLIENT_NAME,
                 Constants.CLIENT_VERSION,
-                SemuxGUI.class.getPackage().getImplementationVersion(),
+                SystemUtil.getImplementationVersion(),
                 SystemUtil.getOsName().toString(),
                 SystemUtil.getOsArch());
     }
@@ -169,8 +228,23 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
-    public byte networkId() {
-        return networkId;
+    public File databaseDir() {
+        return databaseDir(network);
+    }
+
+    @Override
+    public File databaseDir(Network network) {
+        return new File(dataDir, Constants.DATABASE_DIR + File.separator + network.name().toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    public File configDir() {
+        return new File(dataDir, Constants.CONFIG_DIR);
+    }
+
+    @Override
+    public Network network() {
+        return network;
     }
 
     @Override
@@ -209,7 +283,7 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
-    public long minTransactionFee() {
+    public Amount minTransactionFee() {
         return minTransactionFee;
     }
 
@@ -219,13 +293,8 @@ public abstract class AbstractConfig implements Config {
     }
 
     @Override
-    public long minDelegateBurnAmount() {
+    public Amount minDelegateBurnAmount() {
         return minDelegateBurnAmount;
-    }
-
-    @Override
-    public long mandatoryUpgrade() {
-        return mandatoryUpgrade;
     }
 
     @Override
@@ -296,6 +365,16 @@ public abstract class AbstractConfig implements Config {
     @Override
     public Set<MessageCode> netPrioritizedMessages() {
         return netPrioritizedMessages;
+    }
+
+    @Override
+    public List<String> netDnsSeedsMainNet() {
+        return netDnsSeedsMainNet;
+    }
+
+    @Override
+    public List<String> netDnsSeedsTestNet() {
+        return netDnsSeedsTestNet;
     }
 
     @Override
@@ -378,8 +457,23 @@ public abstract class AbstractConfig implements Config {
         return locale;
     }
 
+    @Override
+    public String uiUnit() {
+        return uiUnit;
+    }
+
+    @Override
+    public int uiFractionDigits() {
+        return uiFractionDigits;
+    }
+
+    @Override
+    public boolean forkUniformDistributionEnabled() {
+        return forkUniformDistributionEnabled;
+    }
+
     protected void init() {
-        File f = new File(dataDir, Constants.CONFIG_DIR + File.separator + CONFIG_FILE);
+        File f = getFile();
         if (!f.exists()) {
             // exit if the config file does not exist
             return;
@@ -394,17 +488,20 @@ public abstract class AbstractConfig implements Config {
                 String name = (String) k;
 
                 switch (name) {
+                case "wallet.password":
+                    walletPassword = props.getProperty(name).trim();
+                    break;
                 case "p2p.declaredIp":
-                    p2pDeclaredIp = props.getProperty(name);
+                    p2pDeclaredIp = props.getProperty(name).trim();
                     break;
                 case "p2p.listenIp":
-                    p2pListenIp = props.getProperty(name);
+                    p2pListenIp = props.getProperty(name).trim();
                     break;
                 case "p2p.listenPort":
-                    p2pListenPort = Integer.parseInt(props.getProperty(name));
+                    p2pListenPort = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "p2p.seedNodes":
-                    String[] nodes = props.getProperty(name).split(",");
+                    String[] nodes = props.getProperty(name).trim().split(",");
                     for (String node : nodes) {
                         if (!node.trim().isEmpty()) {
                             String[] tokens = node.trim().split(":");
@@ -418,38 +515,44 @@ public abstract class AbstractConfig implements Config {
                     break;
 
                 case "net.maxInboundConnections":
-                    netMaxInboundConnections = Integer.parseInt(props.getProperty(name));
+                    netMaxInboundConnections = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "net.maxInboundConnectionsPerIp":
-                    netMaxInboundConnectionsPerIp = Integer.parseInt(props.getProperty(name));
+                    netMaxInboundConnectionsPerIp = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "net.maxOutboundConnections":
-                    netMaxInboundConnections = Integer.parseInt(props.getProperty(name));
+                    netMaxInboundConnections = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "net.maxMessageQueueSize":
-                    netMaxMessageQueueSize = Integer.parseInt(props.getProperty(name));
+                    netMaxMessageQueueSize = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "net.relayRedundancy":
-                    netRelayRedundancy = Integer.parseInt(props.getProperty(name));
+                    netRelayRedundancy = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "net.channelIdleTimeout":
-                    netChannelIdleTimeout = Integer.parseInt(props.getProperty(name));
+                    netChannelIdleTimeout = Integer.parseInt(props.getProperty(name).trim());
+                    break;
+                case "net.dnsSeeds.mainNet":
+                    netDnsSeedsMainNet = Arrays.asList(props.getProperty(name).trim().split(","));
+                    break;
+                case "net.dnsSeeds.testNet":
+                    netDnsSeedsTestNet = Arrays.asList(props.getProperty(name).trim().split(","));
                     break;
 
                 case "api.enabled":
-                    apiEnabled = Boolean.parseBoolean(props.getProperty(name));
+                    apiEnabled = Boolean.parseBoolean(props.getProperty(name).trim());
                     break;
                 case "api.listenIp":
-                    apiListenIp = props.getProperty(name);
+                    apiListenIp = props.getProperty(name).trim();
                     break;
                 case "api.listenPort":
-                    apiListenPort = Integer.parseInt(props.getProperty(name));
+                    apiListenPort = Integer.parseInt(props.getProperty(name).trim());
                     break;
                 case "api.username":
-                    apiUsername = props.getProperty(name);
+                    apiUsername = props.getProperty(name).trim();
                     break;
                 case "api.password":
-                    apiPassword = props.getProperty(name);
+                    apiPassword = props.getProperty(name).trim();
                     break;
                 case "ui.locale": {
                     // ui.locale must be in format of en_US ([language]_[country])
@@ -459,6 +562,14 @@ public abstract class AbstractConfig implements Config {
                     }
                     break;
                 }
+                case "ui.unit": {
+                    uiUnit = props.getProperty(name).trim();
+                    break;
+                }
+                case "ui.fractionDigits": {
+                    uiFractionDigits = Integer.parseInt(props.getProperty(name).trim());
+                    break;
+                }
                 default:
                     logger.error("Unsupported option: {} = {}", name, props.getProperty(name));
                     break;
@@ -466,6 +577,13 @@ public abstract class AbstractConfig implements Config {
             }
         } catch (Exception e) {
             logger.error("Failed to load config file: {}", f, e);
+        }
+    }
+
+    private void validate() {
+        if (apiEnabled &&
+                ("YOUR_API_USERNAME".equals(apiUsername) || "YOUR_API_PASSWORD".equals(apiPassword))) {
+            throw new ConfigException("Please change your API username/password from the default values.");
         }
     }
 }

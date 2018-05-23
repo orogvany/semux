@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -15,15 +15,15 @@ import java.util.List;
 import org.apache.commons.lang3.RandomUtils;
 import org.junit.rules.ExternalResource;
 import org.mockito.Mockito;
-import org.semux.core.Unit;
+import org.semux.core.Amount;
 import org.semux.core.state.Account;
-import org.semux.crypto.EdDSA;
+import org.semux.crypto.Key;
 import org.semux.gui.model.WalletAccount;
 import org.semux.gui.model.WalletModel;
 
 public class WalletModelRule extends ExternalResource {
 
-    public final EdDSA key;
+    public final Key key;
 
     public Account account;
 
@@ -31,12 +31,12 @@ public class WalletModelRule extends ExternalResource {
 
     public WalletModel walletModel;
 
-    final int availableSEM;
+    final Amount availableSEM;
 
-    final int lockedSEM;
+    final Amount lockedSEM;
 
-    public WalletModelRule(int availableSEM, int lockedSEM) {
-        this.key = new EdDSA();
+    public WalletModelRule(Amount availableSEM, Amount lockedSEM) {
+        this.key = new Key();
         this.availableSEM = availableSEM;
         this.lockedSEM = lockedSEM;
     }
@@ -46,11 +46,11 @@ public class WalletModelRule extends ExternalResource {
         super.before();
         account = new Account(
                 key.toAddress(),
-                availableSEM * Unit.SEM,
-                lockedSEM * Unit.SEM,
+                availableSEM,
+                lockedSEM,
                 RandomUtils.nextInt(1, 100));
 
-        walletAccount = new WalletAccount(key, account);
+        walletAccount = new WalletAccount(key, account, "test account");
         List<WalletAccount> accountList = Collections.singletonList(walletAccount);
         walletModel = mock(WalletModel.class);
         when(walletModel.getAccounts()).thenReturn(accountList);

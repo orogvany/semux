@@ -14,6 +14,9 @@
 /node*
 /addressbook.json
 
+# cmake build dir
+build/
+
 # maven generated files
 target/
 dist/
@@ -32,3 +35,9 @@ dist/
 
 # JVM crash dumps
 hs_err_pid*
+
+# ignore generated files
+src/gen
+
+# ignore slf4j test config
+src/test/resources/log4j2-test.xml

@@ -1,17 +1,21 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.api.http;
 
+import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
+import static java.net.HttpURLConnection.HTTP_OK;
+import static junit.framework.TestCase.assertTrue;
 import static org.awaitility.Awaitility.await;
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
 
@@ -20,12 +24,14 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.semux.KernelMock;
-import org.semux.api.ApiHandlerResponse;
+import org.semux.api.Version;
+import org.semux.api.v1_0_1.ApiHandlerResponse;
 import org.semux.rules.KernelRule;
 import org.semux.util.BasicAuth;
 
 import io.netty.handler.codec.http.HttpHeaders;
 
+@SuppressWarnings("deprecation")
 public class HttpHandlerTest {
 
     @Rule
@@ -62,7 +68,7 @@ public class HttpHandlerTest {
         new Thread(() -> server.start(ip, port, httpChannelInitializer == null ? new HttpChannelInitializer() {
             @Override
             HttpHandler initHandler() {
-                return new HttpHandler(kernel.getConfig(), (u, p, h) -> {
+                return new HttpHandler(kernel.getConfig(), (m, u, p, h) -> {
                     uri = u;
                     params = p;
                     headers = h;
@@ -129,5 +135,67 @@ public class HttpHandlerTest {
         assertEquals("b", params.get("a"));
         assertEquals("f", params.get("e"));
         assertEquals("d", headers.get("c"));
+    }
+
+    @Test
+    public void testGetStaticFiles() throws IOException {
+        startServer(null);
+
+        Map<String, String> testCases = new HashMap<>();
+        testCases.put(server.getSwaggerUrl(), "text/html");
+        testCases.put(String.format("http://%s:%d/swagger-ui/swagger-ui.css", server.ip, server.port), "text/css");
+        testCases.put(String.format("http://%s:%d/swagger-ui/swagger-ui-bundle.js", server.ip, server.port),
+                "text/javascript");
+        testCases.put(String.format("http://%s:%d/swagger-ui/swagger-ui-standalone-preset.js", server.ip, server.port),
+                "text/javascript");
+
+        for (Map.Entry<String, String> e : testCases.entrySet()) {
+            URL url = new URL(e.getKey());
+            HttpURLConnection con = (HttpURLConnection) url.openConnection();
+            con.setRequestProperty("Authorization", auth);
+
+            StringBuilder lines = new StringBuilder();
+            Scanner s = new Scanner(con.getInputStream());
+            while (s.hasNextLine()) {
+                lines.append(s.nextLine());
+            }
+            s.close();
+
+            assertEquals(HTTP_OK, con.getResponseCode());
+            assertEquals(e.getValue(), con.getHeaderField("content-type"));
+            assertTrue(lines.toString().length() > 1);
+        }
+    }
+
+    @Test
+    public void testGetStaticFiles404() throws IOException {
+        startServer(null);
+
+        URL url = new URL("http://" + ip + ":" + port + "/" + Version.v2_0_0.prefix + "/xx.html");
+        HttpURLConnection con = (HttpURLConnection) url.openConnection();
+        con.setRequestProperty("Authorization", auth);
+
+        assertEquals(HTTP_NOT_FOUND, con.getResponseCode());
+    }
+
+    @Test
+    public void testKeepAlive() throws IOException {
+        startServer(null);
+
+        for (int i = 0; i < 2; i++) {
+            URL url = new URL("http://" + ip + ":" + port + "/");
+            HttpURLConnection con = (HttpURLConnection) url.openConnection();
+            con.setUseCaches(false);
+            con.setRequestMethod("GET");
+            con.setRequestProperty("Connection", "keep-alive");
+            con.setRequestProperty("Authorization", auth);
+
+            Scanner s = new Scanner(con.getInputStream());
+            s.nextLine();
+            s.close();
+
+            assertEquals(HTTP_OK, con.getResponseCode());
+            assertEquals("keep-alive", con.getHeaderField("connection"));
+        }
     }
 }

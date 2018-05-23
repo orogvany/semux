@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -7,7 +7,9 @@
 package org.semux.core;
 
 import java.util.List;
+import java.util.Map;
 
+import org.semux.consensus.ValidatorActivatedFork;
 import org.semux.core.BlockchainImpl.ValidatorStats;
 import org.semux.core.state.AccountState;
 import org.semux.core.state.DelegateState;
@@ -99,6 +101,16 @@ public interface Blockchain {
     Transaction getTransaction(byte[] hash);
 
     /**
+     * Returns coinbase transaction of the block number. This method is required as
+     * Semux doesn't store coinbase transaction in blocks.
+     *
+     * @param blockNumber
+     *            the block number
+     * @return the coinbase transaction
+     */
+    Transaction getCoinbaseTransaction(long blockNumber);
+
+    /**
      * Returns whether the transaction is in the blockchain.
      *
      * @param hash
@@ -181,9 +193,27 @@ public interface Blockchain {
     ValidatorStats getValidatorStats(byte[] address);
 
     /**
+     * Get currently activated forks.
+     *
+     * @return
+     */
+    Map<ValidatorActivatedFork, ValidatorActivatedFork.Activation> getActivatedForks();
+
+    /**
      * Register a blockchain listener.
      * 
      * @param listener
      */
     void addListener(BlockchainListener listener);
+
+    /**
+     * Checks whether a fork is activated at a certain blockchain height.
+     *
+     * @param number
+     *            The number of blockchain height to check.
+     * @param fork
+     *            An instance of ${@link ValidatorActivatedFork} to check.
+     * @return
+     */
+    boolean forkActivated(long number, ValidatorActivatedFork fork);
 }

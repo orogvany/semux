@@ -1,10 +1,14 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core;
+
+import static org.semux.core.Amount.neg;
+import static org.semux.core.Amount.sub;
+import static org.semux.core.Amount.sum;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -83,14 +87,14 @@ public class TransactionExecutor {
             TransactionType type = tx.getType();
             byte[] from = tx.getFrom();
             byte[] to = tx.getTo();
-            long value = tx.getValue();
+            Amount value = tx.getValue();
             long nonce = tx.getNonce();
-            long fee = tx.getFee();
+            Amount fee = tx.getFee();
             byte[] data = tx.getData();
 
             Account acc = as.getAccount(from);
-            long available = acc.getAvailable();
-            long locked = acc.getLocked();
+            Amount available = acc.getAvailable();
+            Amount locked = acc.getLocked();
 
             // check nonce
             if (nonce != acc.getNonce()) {
@@ -99,7 +103,7 @@ public class TransactionExecutor {
             }
 
             // check fee
-            if (fee < config.minTransactionFee()) {
+            if (fee.lt(config.minTransactionFee())) {
                 result.setError(Error.INVALID_FEE);
                 continue;
             }
@@ -112,9 +116,9 @@ public class TransactionExecutor {
 
             switch (type) {
             case TRANSFER: {
-                if (fee <= available && value <= available && value + fee <= available) {
+                if (fee.lte(available) && value.lte(available) && sum(value, fee).lte(available)) {
 
-                    as.adjustAvailable(from, -value - fee);
+                    as.adjustAvailable(from, neg(sum(value, fee)));
                     as.adjustAvailable(to, value);
 
                     result.setSuccess(true);
@@ -128,15 +132,15 @@ public class TransactionExecutor {
                     result.setError(Error.INVALID_DELEGATE_NAME);
                     break;
                 }
-                if (value < config.minDelegateBurnAmount()) {
+                if (value.lt(config.minDelegateBurnAmount())) {
                     result.setError(Error.INVALID_DELEGATE_BURN_AMOUNT);
                     break;
                 }
 
-                if (fee <= available && value <= available && value + fee <= available) {
+                if (fee.lte(available) && value.lte(available) && sum(value, fee).lte(available)) {
                     if (Arrays.equals(Bytes.EMPTY_ADDRESS, to) && ds.register(from, data)) {
 
-                        as.adjustAvailable(from, -value - fee);
+                        as.adjustAvailable(from, neg(sum(value, fee)));
 
                         result.setSuccess(true);
                     } else {
@@ -148,10 +152,10 @@ public class TransactionExecutor {
                 break;
             }
             case VOTE: {
-                if (fee <= available && value <= available && value + fee <= available) {
+                if (fee.lte(available) && value.lte(available) && sum(value, fee).lte(available)) {
                     if (ds.vote(from, to, value)) {
 
-                        as.adjustAvailable(from, -value - fee);
+                        as.adjustAvailable(from, neg(sum(value, fee)));
                         as.adjustLocked(from, value);
 
                         result.setSuccess(true);
@@ -164,18 +168,23 @@ public class TransactionExecutor {
                 break;
             }
             case UNVOTE: {
-                if (fee <= available && value <= locked) {
-                    if (ds.unvote(from, to, value)) {
+                if (available.lt(fee)) {
+                    result.setError(Error.INSUFFICIENT_AVAILABLE);
+                    break;
+                }
 
-                        as.adjustAvailable(from, value - fee);
-                        as.adjustLocked(from, -value);
-
-                        result.setSuccess(true);
-                    } else {
-                        result.setError(Error.FAILED);
-                    }
-                } else {
+                if (locked.lt(value)) {
                     result.setError(Error.INSUFFICIENT_LOCKED);
+                    break;
+                }
+
+                if (ds.unvote(from, to, value)) {
+                    as.adjustAvailable(from, sub(value, fee));
+                    as.adjustLocked(from, neg(value));
+
+                    result.setSuccess(true);
+                } else {
+                    result.setError(Error.FAILED);
                 }
                 break;
             }

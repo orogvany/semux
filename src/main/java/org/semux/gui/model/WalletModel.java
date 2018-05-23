@@ -1,10 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.gui.model;
+
+import static org.semux.core.Amount.ZERO;
 
 import java.awt.EventQueue;
 import java.awt.event.ActionEvent;
@@ -13,13 +15,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.semux.config.Config;
+import org.semux.consensus.ValidatorActivatedFork;
+import org.semux.core.Amount;
 import org.semux.core.Block;
 import org.semux.core.SyncManager;
-import org.semux.crypto.EdDSA;
+import org.semux.core.state.Account;
+import org.semux.crypto.Key;
 import org.semux.gui.Action;
-import org.semux.gui.AddressBook;
 import org.semux.net.Peer;
 import org.semux.util.ByteArray;
 
@@ -29,28 +35,42 @@ import org.semux.util.ByteArray;
  */
 public class WalletModel {
 
-    private List<ActionListener> listeners = new CopyOnWriteArrayList<>();
+    private final List<ActionListener> listeners = new CopyOnWriteArrayList<>();
+    private final List<ActionListener> lockableComponents = new CopyOnWriteArrayList<>();
+
+    private final Config config;
 
     private SyncManager.Progress syncProgress;
 
     private Block latestBlock;
 
-    private EdDSA coinbase;
-    private boolean isDelegate;
+    private Key coinbase;
+    private Status status;
 
-    private volatile Map<ByteArray, Integer> accountNo = new HashMap<>();
+    private volatile Map<ByteArray, Integer> accountsIndex = new HashMap<>();
     private volatile List<WalletAccount> accounts = new ArrayList<>();
     private volatile List<WalletDelegate> delegates = new ArrayList<>();
+    private volatile List<String> validators = new ArrayList<>();
+    private volatile Map<ValidatorActivatedFork, ValidatorActivatedFork.Activation> activatedForks = new HashMap<>();
 
     private Map<String, Peer> activePeers = new HashMap<>();
 
-    private AddressBook addressBook;
+    public WalletModel(Config config) {
+        this.config = config;
+    }
 
     /**
      * Fires an model update event.
      */
     public void fireUpdateEvent() {
         updateView();
+    }
+
+    /**
+     * Fires an lock event.
+     */
+    public void fireLockEvent() {
+        lockView();
     }
 
     /**
@@ -63,12 +83,22 @@ public class WalletModel {
     }
 
     /**
+     * Add a component for locking.<br />
+     * This component has to provide Action.LOCK as ActionListener Event
+     * 
+     * @param listener
+     */
+    public void addLockable(ActionListener listener) {
+        lockableComponents.add(listener);
+    }
+
+    /**
      * Getter for property ${@link #syncProgress}.
      *
      * @return Value to set for property ${@link #syncProgress}.
      */
-    public SyncManager.Progress getSyncProgress() {
-        return syncProgress;
+    public Optional<SyncManager.Progress> getSyncProgress() {
+        return Optional.ofNullable(syncProgress);
     }
 
     /**
@@ -104,7 +134,7 @@ public class WalletModel {
      * 
      * @return
      */
-    public EdDSA getCoinbase() {
+    public Key getCoinbase() {
         return coinbase;
     }
 
@@ -113,26 +143,26 @@ public class WalletModel {
      * 
      * @param coinbase
      */
-    public void setCoinbase(EdDSA coinbase) {
+    public void setCoinbase(Key coinbase) {
         this.coinbase = coinbase;
     }
 
     /**
-     * Check if the coinbase account is a delegate.
+     * Returns the account status.
      * 
      * @return
      */
-    public boolean isDelegate() {
-        return isDelegate;
+    public Status getStatus() {
+        return status;
     }
 
     /**
-     * Set whether the coinbase account is a delegate.
+     * Sets the account status.
      * 
-     * @param isDelegate
+     * @param status
      */
-    public void setDelegate(boolean isDelegate) {
-        this.isDelegate = isDelegate;
+    public void setStatus(Status status) {
+        this.status = status;
     }
 
     /**
@@ -140,12 +170,8 @@ public class WalletModel {
      * 
      * @return
      */
-    public long getTotalAvailable() {
-        long sum = 0;
-        for (WalletAccount acc : accounts) {
-            sum += acc.getAvailable();
-        }
-        return sum;
+    public Amount getTotalAvailable() {
+        return accounts.stream().map(Account::getAvailable).reduce(ZERO, Amount::sum);
     }
 
     /**
@@ -153,30 +179,8 @@ public class WalletModel {
      * 
      * @return
      */
-    public long getTotalLocked() {
-        long sum = 0;
-        for (WalletAccount acc : accounts) {
-            sum += acc.getLocked();
-        }
-        return sum;
-    }
-
-    /**
-     * Sets the address book.
-     * 
-     * @param addressBook
-     */
-    public void setAddressBook(AddressBook addressBook) {
-        this.addressBook = addressBook;
-    }
-
-    /**
-     * Returns the address book.
-     * 
-     * @return
-     */
-    public AddressBook getAddressBook() {
-        return addressBook;
+    public Amount getTotalLocked() {
+        return accounts.stream().map(Account::getLocked).reduce(ZERO, Amount::sum);
     }
 
     public List<WalletAccount> getAccounts() {
@@ -184,8 +188,13 @@ public class WalletModel {
     }
 
     public int getAccountNumber(byte[] address) {
-        Integer n = accountNo.get(ByteArray.of(address));
+        Integer n = accountsIndex.get(ByteArray.of(address));
         return n == null ? -1 : n;
+    }
+
+    public WalletAccount getAccount(byte[] address) {
+        int accountNum = getAccountNumber(address);
+        return accountNum >= 0 ? accounts.get(accountNum) : null;
     }
 
     public void setAccounts(List<WalletAccount> accounts) {
@@ -193,8 +202,8 @@ public class WalletModel {
         for (int i = 0; i < accounts.size(); i++) {
             map.put(ByteArray.of(accounts.get(i).getKey().toAddress()), i);
         }
-        this.accountNo = map;
         this.accounts = accounts;
+        this.accountsIndex = map;
     }
 
     public List<WalletDelegate> getDelegates() {
@@ -209,8 +218,118 @@ public class WalletModel {
         return activePeers;
     }
 
+    /**
+     * Getter for property 'validators'.
+     *
+     * @return Value for property 'validators'.
+     */
+    public List<String> getValidators() {
+        return validators;
+    }
+
+    /**
+     * Setter for property 'validators'.
+     *
+     * @param validators
+     *            Value to set for property 'validators'.
+     */
+    public void setValidators(List<String> validators) {
+        this.validators = validators;
+    }
+
     public void setActivePeers(Map<String, Peer> activePeers) {
         this.activePeers = activePeers;
+    }
+
+    /**
+     * Returns the address of the current primary validator based off
+     * {@link this#latestBlock}.
+     *
+     * @return The address of the current primary validator.
+     */
+    public Optional<String> getValidator(int view) {
+        if (validators == null || latestBlock == null || activatedForks == null) {
+            return Optional.empty();
+        }
+
+        return Optional.ofNullable(config.getPrimaryValidator(validators,
+                latestBlock.getNumber() + 1,
+                view,
+                activatedForks.containsKey(ValidatorActivatedFork.UNIFORM_DISTRIBUTION)));
+    }
+
+    /**
+     * Returns the {@link WalletDelegate} of the current primary validator based off
+     * {@link this#latestBlock}.
+     *
+     * @return The {@link WalletDelegate} of the current primary validator.
+     */
+    public Optional<WalletDelegate> getValidatorDelegate(int view) {
+        if (delegates == null || !getValidator(view).isPresent()) {
+            return Optional.empty();
+        }
+
+        return delegates.stream()
+                .filter(wd -> wd.getAddressString().equals(getValidator(view).get()))
+                .findFirst();
+    }
+
+    /**
+     * Returns the {@link WalletDelegate} of the next primary validator based off
+     * {@link this#latestBlock}.
+     *
+     * @return The {@link WalletDelegate} of the next primary validator.
+     */
+    public Optional<WalletDelegate> getNextPrimaryValidatorDelegate() {
+        if (latestBlock == null || delegates == null || validators == null) {
+            return Optional.empty();
+        }
+
+        // the next validator can't be predicted if the validator set is going to be
+        // updated in the next round
+        if ((latestBlock.getNumber() + 2) % config.getValidatorUpdateInterval() == 0) {
+            return Optional.empty();
+        }
+
+        return delegates.stream()
+                .filter(wd -> wd.getAddressString().equals(
+                        validators.get((int) ((latestBlock.getNumber() + 2) % validators.size()))))
+                .findFirst();
+    }
+
+    /**
+     * Calculates and returns the block number of next validator set update based
+     * off {@link this#latestBlock}.
+     *
+     * @return the block number of next validator set update.
+     */
+    public Optional<Long> getNextValidatorSetUpdate() {
+        if (latestBlock == null) {
+            return Optional.empty();
+        }
+
+        return Optional.of(
+                ((latestBlock.getNumber() + 1) / config.getValidatorUpdateInterval() + 1)
+                        * config.getValidatorUpdateInterval());
+    }
+
+    /**
+     * Getter for property 'activatedForks'.
+     *
+     * @return Value for property 'activatedForks'.
+     */
+    public Map<ValidatorActivatedFork, ValidatorActivatedFork.Activation> getActivatedForks() {
+        return activatedForks;
+    }
+
+    /**
+     * Setter for property 'activatedForks'.
+     *
+     * @param activatedForks
+     *            Value to set for property 'activatedForks'.
+     */
+    public void setActivatedForks(Map<ValidatorActivatedFork, ValidatorActivatedFork.Activation> activatedForks) {
+        this.activatedForks = activatedForks;
     }
 
     /**
@@ -220,5 +339,18 @@ public class WalletModel {
         for (ActionListener listener : listeners) {
             EventQueue.invokeLater(() -> listener.actionPerformed(new ActionEvent(this, 0, Action.REFRESH.name())));
         }
+    }
+
+    /**
+     * Locks components.
+     */
+    protected void lockView() {
+        for (ActionListener listener : lockableComponents) {
+            EventQueue.invokeLater(() -> listener.actionPerformed(new ActionEvent(this, 0, Action.LOCK.name())));
+        }
+    }
+
+    public enum Status {
+        NORMAL, DELEGATE, VALIDATOR
     }
 }

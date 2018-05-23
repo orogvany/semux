@@ -1,21 +1,25 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.util;
 
+import static org.semux.core.Amount.Unit.NANO_SEM;
+
 import java.io.UnsupportedEncodingException;
 
-import org.semux.util.exception.SimpleDecoderException;
+import org.semux.core.Amount;
+import org.semux.util.exception.SimpleCodecException;
 
 public class SimpleDecoder {
     private static final String ENCODING = "UTF-8";
 
-    private byte[] in;
-    private int from;
-    private int to;
+    private final byte[] in;
+    private final int from;
+    private final int to;
+
     private int index;
 
     public SimpleDecoder(byte[] in) {
@@ -60,6 +64,10 @@ public class SimpleDecoder {
         return (unsignedInt(i1) << 32) | unsignedInt(i2);
     }
 
+    public Amount readAmount() {
+        return NANO_SEM.of(readLong());
+    }
+
     public byte[] readBytes(boolean vlq) {
         int len = vlq ? readSize() : readInt();
 
@@ -79,7 +87,7 @@ public class SimpleDecoder {
         try {
             return new String(readBytes(), ENCODING);
         } catch (UnsupportedEncodingException e) {
-            throw new SimpleDecoderException(e);
+            throw new SimpleCodecException(e);
         }
     }
 

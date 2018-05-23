@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -9,6 +9,7 @@ package org.semux.gui.panel;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
+import static org.semux.core.Amount.Unit.NANO_SEM;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
@@ -25,12 +26,13 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.semux.KernelMock;
+import org.semux.core.Amount;
 import org.semux.core.state.Account;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.gui.model.WalletAccount;
 import org.semux.gui.model.WalletModel;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.rules.KernelRule;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -53,10 +55,12 @@ public class ReceivePanelTest extends AssertJSwingJUnitTestCase {
 
     @Test
     public void testCopyAddress() {
-        EdDSA key1 = new EdDSA();
-        EdDSA key2 = new EdDSA();
-        WalletAccount acc1 = new WalletAccount(key1, new Account(key1.toAddress(), 1, 1, 1));
-        WalletAccount acc2 = new WalletAccount(key2, new Account(key2.toAddress(), 2, 2, 2));
+        Key key1 = new Key();
+        Key key2 = new Key();
+        Amount $1 = NANO_SEM.of(1);
+        Amount $2 = NANO_SEM.of(2);
+        WalletAccount acc1 = new WalletAccount(key1, new Account(key1.toAddress(), $1, $1, 1), null);
+        WalletAccount acc2 = new WalletAccount(key2, new Account(key2.toAddress(), $2, $2, 2), null);
 
         // mock walletModel
         when(walletModel.getAccounts()).thenReturn(Arrays.asList(acc1, acc2));
@@ -73,7 +77,7 @@ public class ReceivePanelTest extends AssertJSwingJUnitTestCase {
         table.requireSelectedRows(1);
         window.button("btnCopyAddress").requireVisible().click();
         window.optionPane(Timeout.timeout(1000)).requireVisible()
-                .requireMessage(GUIMessages.get("AddressCopied", Hex.PREF + key2.toAddressString()));
+                .requireMessage(GuiMessages.get("AddressCopied", Hex.PREF + key2.toAddressString()));
 
         assertEquals(Hex.PREF + key2.toAddressString(), GuiActionRunner
                 .execute(() -> Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor)));

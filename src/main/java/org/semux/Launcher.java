@@ -1,12 +1,17 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux;
 
+import static org.semux.Network.MAINNET;
+
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -14,26 +19,61 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.logging.log4j.LogManager;
 import org.semux.cli.SemuxOption;
 import org.semux.config.Config;
 import org.semux.config.Constants;
-import org.semux.config.DevNetConfig;
-import org.semux.config.MainNetConfig;
-import org.semux.config.TestNetConfig;
+import org.semux.config.DevnetConfig;
+import org.semux.config.MainnetConfig;
+import org.semux.config.TestnetConfig;
+import org.semux.event.PubSubFactory;
+import org.semux.exception.LauncherException;
 import org.semux.log.LoggerConfigurator;
+import org.semux.message.CliMessages;
+import org.semux.util.SystemUtil;
+import org.semux.util.exception.UnreachableException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class Launcher {
 
-    protected static final String DEVNET = "devnet";
-    protected static final String TESTNET = "testnet";
-    protected static final String MAINNET = "mainnet";
+    private static final Logger logger = LoggerFactory.getLogger(Launcher.class);
 
-    private Options options = new Options();
+    /**
+     * Here we make sure that all shutdown hooks will be executed in the order of
+     * registration. This is necessary to be manually maintained because
+     * ${@link Runtime#addShutdownHook(Thread)} starts shutdown hooks concurrently
+     * in unspecified order.
+     */
+    private static final List<Pair<String, Runnable>> shutdownHooks = Collections.synchronizedList(new ArrayList<>());
 
-    private String network = MAINNET;
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(Launcher::shutdownHook, "shutdown-hook"));
+    }
+
+    private final Options options = new Options();
+
+    private String dataDir = Constants.DEFAULT_DATA_DIR;
+    private Network network = MAINNET;
+
     private int coinbase = 0;
     private String password = null;
-    private String dataDir = Constants.DEFAULT_DATA_DIR;
+
+    public Launcher() {
+        Option dataDirOption = Option.builder()
+                .longOpt(SemuxOption.DATA_DIR.toString())
+                .desc(CliMessages.get("SpecifyDataDir"))
+                .hasArg(true).numberOfArgs(1).optionalArg(false).argName("path").type(String.class)
+                .build();
+        addOption(dataDirOption);
+
+        Option networkOption = Option.builder()
+                .longOpt(SemuxOption.NETWORK.toString()).desc(CliMessages.get("SpecifyNetwork"))
+                .hasArg(true).numberOfArgs(1).optionalArg(false).argName("name").type(String.class)
+                .build();
+        addOption(networkOption);
+    }
 
     /**
      * Creates an instance of {@link Config} based on the given `--network` option.
@@ -44,12 +84,14 @@ public abstract class Launcher {
      */
     public Config getConfig() {
         switch (getNetwork()) {
+        case MAINNET:
+            return new MainnetConfig(getDataDir());
         case TESTNET:
-            return new TestNetConfig(getDataDir());
+            return new TestnetConfig(getDataDir());
         case DEVNET:
-            return new DevNetConfig(getDataDir());
+            return new DevnetConfig(getDataDir());
         default:
-            return new MainNetConfig(getDataDir());
+            throw new UnreachableException();
         }
     }
 
@@ -58,7 +100,7 @@ public abstract class Launcher {
      *
      * @return
      */
-    public String getNetwork() {
+    public Network getNetwork() {
         return network;
     }
 
@@ -98,7 +140,24 @@ public abstract class Launcher {
      */
     protected CommandLine parseOptions(String[] args) throws ParseException {
         CommandLineParser parser = new DefaultParser();
-        return parser.parse(getOptions(), args);
+        CommandLine cmd = parser.parse(getOptions(), args);
+
+        if (cmd.hasOption(SemuxOption.DATA_DIR.toString())) {
+            setDataDir(cmd.getOptionValue(SemuxOption.DATA_DIR.toString()));
+        }
+
+        if (cmd.hasOption(SemuxOption.NETWORK.toString())) {
+            String option = cmd.getOptionValue(SemuxOption.NETWORK.toString());
+            Network net = Network.of(option);
+            if (net == null) {
+                logger.error("Invalid network label: {}", option);
+                SystemUtil.exit(SystemUtil.Code.INVALID_NETWORK_LABEL);
+            } else {
+                setNetwork(net);
+            }
+        }
+
+        return cmd;
     }
 
     /**
@@ -108,10 +167,18 @@ public abstract class Launcher {
      * @throws ParseException
      */
     protected void setupLogger(String[] args) throws ParseException {
-        CommandLine cmd = parseOptions(args);
-        LoggerConfigurator.configure(
-                new File(cmd.hasOption(SemuxOption.DATA_DIR.name()) ? cmd.getOptionValue(SemuxOption.DATA_DIR.name())
-                        : Constants.DEFAULT_DATA_DIR));
+        // parse options
+        parseOptions(args);
+
+        LoggerConfigurator.configure(new File(dataDir));
+    }
+
+    /**
+     * Set up pubsub service.
+     */
+    protected void setupPubSub() {
+        PubSubFactory.getDefault().start();
+        registerShutdownHook("pubsub-default", () -> PubSubFactory.getDefault().stop());
     }
 
     /**
@@ -137,7 +204,7 @@ public abstract class Launcher {
      *
      * @param network
      */
-    protected void setNetwork(String network) {
+    protected void setNetwork(Network network) {
         this.network = network;
     }
 
@@ -168,4 +235,49 @@ public abstract class Launcher {
         this.password = password;
     }
 
+    /**
+     * Check runtime prerequisite.
+     *
+     */
+    protected static void checkPrerequisite() {
+        switch (SystemUtil.getOsName()) {
+        case WINDOWS:
+            if (!SystemUtil.isWindowsVCRedist2012Installed()) {
+                throw new LauncherException(
+                        "Microsoft Visual C++ 2012 Redistributable Package is not installed. Please visit: https://www.microsoft.com/en-us/download/details.aspx?id=30679");
+            }
+            break;
+        default:
+        }
+    }
+
+    /**
+     * Registers a shutdown hook which will be executed in the order of
+     * registration.
+     *
+     * @param name
+     * @param runnable
+     */
+    public static synchronized void registerShutdownHook(String name, Runnable runnable) {
+        shutdownHooks.add(Pair.of(name, runnable));
+    }
+
+    /**
+     * Call registered shutdown hooks in the order of registration.
+     *
+     */
+    private static synchronized void shutdownHook() {
+        // shutdown hooks
+        for (Pair<String, Runnable> r : shutdownHooks) {
+            try {
+                logger.info("Shutting down {}", r.getLeft());
+                r.getRight().run();
+            } catch (Exception e) {
+                logger.info("Failed to shutdown {}", r.getLeft(), e);
+            }
+        }
+
+        // flush log4j async loggers
+        LogManager.shutdown();
+    }
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -30,7 +30,7 @@ public class PeerServer {
     private static final Logger logger = LoggerFactory.getLogger(PeerServer.class);
 
     private static final ThreadFactory factory = new ThreadFactory() {
-        AtomicInteger cnt = new AtomicInteger(0);
+        final AtomicInteger cnt = new AtomicInteger(0);
 
         @Override
         public Thread newThread(Runnable r) {
@@ -38,7 +38,8 @@ public class PeerServer {
         }
     };
 
-    protected Kernel kernel;
+    protected final Kernel kernel;
+
     protected Channel channel;
 
     private NioEventLoopGroup bossGroup;

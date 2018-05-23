@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -11,12 +11,16 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Frame;
 import java.awt.Graphics;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 import javax.swing.Box;
 import javax.swing.JButton;
@@ -33,39 +37,64 @@ import javax.swing.border.LineBorder;
 import org.semux.Kernel;
 import org.semux.core.Wallet;
 import org.semux.gui.dialog.InputDialog;
+import org.semux.gui.model.WalletModel;
 import org.semux.gui.panel.DelegatesPanel;
 import org.semux.gui.panel.HomePanel;
 import org.semux.gui.panel.ReceivePanel;
 import org.semux.gui.panel.SendPanel;
 import org.semux.gui.panel.TransactionsPanel;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.util.exception.UnreachableException;
 
 public class MainFrame extends JFrame implements ActionListener {
 
     private static final long serialVersionUID = 1L;
 
-    private transient Kernel kernel;
+    private final transient Kernel kernel;
+    private final transient WalletModel model;
 
-    private LockGlassPane lockGlassPane;
+    private final LockGlassPane lockGlassPane;
 
-    private HomePanel panelHome;
-    private SendPanel panelSend;
-    private ReceivePanel panelReceive;
-    private TransactionsPanel panelTransactions;
-    private DelegatesPanel panelDelegates;
+    private final HomePanel panelHome;
+    private final SendPanel panelSend;
+    private final ReceivePanel panelReceive;
+    private final TransactionsPanel panelTransactions;
+    private final DelegatesPanel panelDelegates;
+    private final StatusBar statusBar;
 
-    private JButton btnHome;
-    private JButton btnSend;
-    private JButton btnReceive;
-    private JButton btnTransactions;
-    private JButton btnDelegates;
-    private JButton btnLock;
+    private final JButton btnHome;
+    private final JButton btnSend;
+    private final JButton btnReceive;
+    private final JButton btnTransactions;
+    private final JButton btnDelegates;
+    private final JButton btnLock;
 
-    private JPanel activePanel;
+    private final JPanel activePanel;
+
     private JButton activeButton;
 
-    public MainFrame(SemuxGUI gui) {
+    public MainFrame(SemuxGui gui) {
+        // ensure that all windows are released before it starts closing the Kernel
+        this.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        this.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                // stop GUI threads
+                gui.stop();
+
+                // destroy all frames
+                for (Frame frame : Frame.getFrames()) {
+                    frame.setVisible(false);
+                    frame.dispose();
+                }
+
+                // trigger the shutdown-hook of Kernel class then exits the process
+                System.exit(0);
+            }
+        });
+        this.model = gui.getModel();
+        this.model.addListener(this);
+
         this.kernel = gui.getKernel();
 
         lockGlassPane = new LockGlassPane();
@@ -79,11 +108,10 @@ public class MainFrame extends JFrame implements ActionListener {
         panelDelegates = new DelegatesPanel(gui, this);
 
         // setup frame properties
-        this.setTitle(GUIMessages.get("SemuxWallet"));
-        this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        this.setTitle(GuiMessages.get("SemuxWallet"));
         this.setIconImage(SwingUtil.loadImage("logo", 128, 128).getImage());
-        this.setMinimumSize(new Dimension(900, 600));
-        SwingUtil.alignFrameToMiddle(this, 900, 600);
+        this.setMinimumSize(new Dimension(960, 600));
+        SwingUtil.alignFrameToMiddle(this, 960, 600);
 
         // setup menu bar
         JMenuBar menuBar = new MenuBar(gui, this);
@@ -100,27 +128,33 @@ public class MainFrame extends JFrame implements ActionListener {
 
         Dimension gap = new Dimension(15, 0);
 
-        btnHome = createButton(GUIMessages.get("Home"), "home", Action.SHOW_HOME);
+        btnHome = createButton(GuiMessages.get("Home"), "home", Action.SHOW_HOME);
+        btnHome.setMnemonic(KeyEvent.VK_H);
         toolBar.add(btnHome);
         toolBar.add(Box.createRigidArea(gap));
 
-        btnSend = createButton(GUIMessages.get("Send"), "send", Action.SHOW_SEND);
+        btnSend = createButton(GuiMessages.get("Send"), "send", Action.SHOW_SEND);
+        btnSend.setMnemonic(KeyEvent.VK_S);
         toolBar.add(btnSend);
         toolBar.add(Box.createRigidArea(gap));
 
-        btnReceive = createButton(GUIMessages.get("Receive"), "receive", Action.SHOW_RECEIVE);
+        btnReceive = createButton(GuiMessages.get("Receive"), "receive", Action.SHOW_RECEIVE);
+        btnReceive.setMnemonic(KeyEvent.VK_R);
         toolBar.add(btnReceive);
         toolBar.add(Box.createRigidArea(gap));
 
-        btnTransactions = createButton(GUIMessages.get("Transactions"), "transactions", Action.SHOW_TRANSACTIONS);
+        btnTransactions = createButton(GuiMessages.get("Transactions"), "transactions", Action.SHOW_TRANSACTIONS);
+        btnTransactions.setMnemonic(KeyEvent.VK_T);
         toolBar.add(btnTransactions);
         toolBar.add(Box.createRigidArea(gap));
 
-        btnDelegates = createButton(GUIMessages.get("Delegates"), "delegates", Action.SHOW_DELEGATES);
+        btnDelegates = createButton(GuiMessages.get("Delegates"), "delegates", Action.SHOW_DELEGATES);
+        btnDelegates.setMnemonic(KeyEvent.VK_D);
         toolBar.add(btnDelegates);
         toolBar.add(Box.createRigidArea(gap));
 
-        btnLock = createButton(GUIMessages.get("Lock"), "lock", Action.LOCK);
+        btnLock = createButton(GuiMessages.get("Lock"), "lock", Action.LOCK);
+        btnLock.setMnemonic(KeyEvent.VK_L);
         toolBar.add(btnLock);
 
         // setup tabs
@@ -134,6 +168,12 @@ public class MainFrame extends JFrame implements ActionListener {
         // show the first tab
         activePanel.add(panelHome);
         select(panelHome, btnHome);
+
+        // add status bar
+        statusBar = new StatusBar(this);
+        statusBar.setPeersNumber(model.getActivePeers().size());
+        model.getSyncProgress().ifPresent(statusBar::setProgress);
+        this.add(statusBar, BorderLayout.SOUTH);
     }
 
     @Override
@@ -159,6 +199,9 @@ public class MainFrame extends JFrame implements ActionListener {
         case LOCK:
             lock();
             break;
+        case REFRESH:
+            refresh();
+            break;
         default:
             throw new UnreachableException();
         }
@@ -172,7 +215,8 @@ public class MainFrame extends JFrame implements ActionListener {
         w.lock();
 
         lockGlassPane.setVisible(true);
-        btnLock.setText(GUIMessages.get("Unlock"));
+        model.fireLockEvent();
+        btnLock.setText(GuiMessages.get("Unlock"));
     }
 
     /**
@@ -183,11 +227,20 @@ public class MainFrame extends JFrame implements ActionListener {
 
         if (password != null && w.unlock(password)) {
             lockGlassPane.setVisible(false);
-            btnLock.setText(GUIMessages.get("Lock"));
+            btnLock.setText(GuiMessages.get("Lock"));
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Event listener of ${@link Action#REFRESH}.
+     */
+    protected void refresh() {
+        // update status bar
+        statusBar.setPeersNumber(model.getActivePeers().size());
+        model.getSyncProgress().ifPresent(statusBar::setProgress);
     }
 
     private static final Border BORDER_NORMAL = new CompoundBorder(new LineBorder(new Color(180, 180, 180)),
@@ -225,13 +278,13 @@ public class MainFrame extends JFrame implements ActionListener {
      */
     protected JButton createButton(String name, String icon, Action action) {
         JButton btn = new JButton(name);
-        btn.setFont(new Font("Lucida Grande", Font.PLAIN, 14));
         btn.setActionCommand(action.name());
         btn.addActionListener(this);
         btn.setIcon(SwingUtil.loadImage(icon, 36, 36));
         btn.setFocusPainted(false);
         btn.setBorder(BORDER_NORMAL);
         btn.setContentAreaFilled(false);
+        btn.setFont(btn.getFont().deriveFont(btn.getFont().getStyle() | Font.BOLD));
 
         return btn;
     }
@@ -247,11 +300,11 @@ public class MainFrame extends JFrame implements ActionListener {
             this.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    String pwd = new InputDialog(MainFrame.this, GUIMessages.get("EnterPassword") + ":", true)
+                    String pwd = new InputDialog(MainFrame.this, GuiMessages.get("EnterPassword") + ":", true)
                             .showAndGet();
 
                     if (pwd != null && !unlock(pwd)) {
-                        JOptionPane.showMessageDialog(MainFrame.this, GUIMessages.get("IncorrectPassword"));
+                        JOptionPane.showMessageDialog(MainFrame.this, GuiMessages.get("IncorrectPassword"));
                     }
                 }
             });

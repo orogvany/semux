@@ -1,32 +1,62 @@
 language: java
+
 matrix:
   include:
-    # Linux license, format, and coverage check
-    - os: linux
+    # License, formatter, and FindBugs check
+    - env: NAME="License, formatter, and FindBugs check"
+      os: linux
       sudo: false
-      jdk: openjdk8
+      jdk: oraclejdk8
       script:
         - mvn license:check
         - mvn formatter:validate
+        - mvn findbugs:check
+
+    # Coverage report
+    - env: NAME="Coverage report"
+      os: linux
+      sudo: false
+      jdk: oraclejdk8
+      script:
         - mvn cobertura:cobertura
       after_success:
         - mvn coveralls:report
 
-    # Linux tests
-    - os: linux
+    # Linux tests (Java 8 LTS)
+    - env: NAME="Linux tests (Java 8)"
+      os: linux
       sudo: false
       jdk: oraclejdk8
       script:
         - mvn test
 
+    # Linux tests (Java 9)
+    - env: NAME="Linux tests (Java 9)"
+      os: linux
+      sudo: false
+      jdk: oraclejdk9
+      script:
+        - mvn test
+
+    # Linux tests (Java 10)
+    - env: NAME="Linux tests (Java 10)"
+      os: linux
+      sudo: false
+      script:
+        - wget https://github.com/sormuras/bach/raw/master/install-jdk.sh
+        - source ./install-jdk.sh -F 10 -L BCL
+        - mvn test
+
     # macOS tests
-    - os: osx
+    - env: NAME="macOS tests"
+      os: osx
       osx_image: xcode9.2
       script:
         - mvn test
 
     # Docker tests
-    - language: none
+    - env: NAME="Docker tests"
+      language: none
       os: linux
       sudo: required
       services:
@@ -36,11 +66,14 @@ matrix:
         - docker run -d -p 5161:5161 semux:latest --password=""
         - timeout 10 .travis/docker_test_build.sh
         - docker kill $(docker ps -q)
+
 cache:
   directories:
     - .autoconf
     - $HOME/.m2
     - $HOME/Library/Caches/Homebrew
+
 before_install:
+  - rm ~/.m2/settings.xml || true # remove the default settings.xml in order to use custom repos
   - if [ "$TRAVIS_OS_NAME" == "linux" ]; then source .travis/linux_start_xvfb.sh; fi
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then .travis/macos_install_jdk8.sh; fi

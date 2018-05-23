@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -24,28 +24,28 @@ import javax.swing.LayoutStyle.ComponentPlacement;
 
 import org.semux.gui.Action;
 import org.semux.gui.SwingUtil;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.util.exception.UnreachableException;
 
 public class SelectDialog extends JDialog implements ActionListener {
 
     private static final long serialVersionUID = 1L;
 
-    private JComboBox<Object> comboBox;
+    private final JComboBox<Object> comboBox;
     private int selected = -1;
 
     public SelectDialog(JFrame parent, String message, List<?> options) {
-        super(parent, GUIMessages.get("Select"));
+        super(parent, GuiMessages.get("Select"));
 
         JLabel labelLogo = new JLabel("");
         labelLogo.setIcon(SwingUtil.loadImage("logo", 96, 96));
 
         JLabel lblMessage = new JLabel(message);
 
-        JButton btnOk = SwingUtil.createDefaultButton(GUIMessages.get("OK"), this, Action.OK);
+        JButton btnOk = SwingUtil.createDefaultButton(GuiMessages.get("OK"), this, Action.OK);
         btnOk.setSelected(true);
 
-        JButton btnCancel = SwingUtil.createDefaultButton(GUIMessages.get("Cancel"), this, Action.CANCEL);
+        JButton btnCancel = SwingUtil.createDefaultButton(GuiMessages.get("Cancel"), this, Action.CANCEL);
 
         comboBox = new JComboBox<>();
         comboBox.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
@@ -76,7 +76,7 @@ public class SelectDialog extends JDialog implements ActionListener {
                             .addComponent(btnCancel, GroupLayout.PREFERRED_SIZE, 100, GroupLayout.PREFERRED_SIZE)
                             .addPreferredGap(ComponentPlacement.UNRELATED)
                             .addComponent(btnOk, GroupLayout.PREFERRED_SIZE, 100, GroupLayout.PREFERRED_SIZE))
-                        .addComponent(comboBox, 0, GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                        .addComponent(comboBox, GroupLayout.PREFERRED_SIZE, 512, Short.MAX_VALUE))
                     .addGap(17))
         );
         groupLayout.setVerticalGroup(

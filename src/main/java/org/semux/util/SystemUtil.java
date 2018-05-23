@@ -1,28 +1,36 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.BufferedReader;
-import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.file.FileSystems;
 import java.util.Locale;
-import java.util.Scanner;
 import java.util.concurrent.ExecutionException;
 
 import org.semux.config.Constants;
+import org.semux.gui.SemuxGui;
+import org.semux.util.exception.UnreachableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.zafarkhaja.semver.Version;
+import com.sun.jna.Platform;
+import com.sun.jna.platform.win32.Advapi32Util;
+import com.sun.jna.platform.win32.Win32Exception;
+import com.sun.jna.platform.win32.WinNT;
+import com.sun.jna.platform.win32.WinReg;
 
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
@@ -40,7 +48,37 @@ public class SystemUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(SystemUtil.class);
 
-    public static final Scanner SCANNER = new Scanner(System.in);
+    public static class Code {
+        // success
+        public static final int OK = 0;
+
+        // wallet
+        public static final int FAILED_TO_WRITE_WALLET_FILE = 11;
+        public static final int FAILED_TO_UNLOCK_WALLET = 12;
+        public static final int ACCOUNT_NOT_EXIST = 13;
+        public static final int ACCOUNT_ALREADY_EXISTS = 14;
+        public static final int INVALID_PRIVATE_KEY = 15;
+        public static final int WALLET_LOCKED = 16;
+        public static final int PASSWORD_REPEAT_NOT_MATCH = 17;
+        public static final int WALLET_ALREADY_EXISTS = 18;
+        public static final int WALLET_ALREADY_UNLOCKED = 19;
+
+        // kernel
+        public static final int FAILED_TO_INIT_ED25519 = 31;
+        public static final int FAILED_TO_LOAD_CONFIG = 32;
+        public static final int FAILED_TO_LOAD_GENESIS = 33;
+        public static final int FAILED_TO_LAUNCH_KERNEL = 34;
+        public static final int INVALID_NETWORK_LABEL = 35;
+
+        // database
+        public static final int FAILED_TO_OPEN_DB = 51;
+        public static final int FAILED_TO_REPAIR_DB = 52;
+        public static final int FAILED_TO_WRITE_BATCH_TO_DB = 53;
+
+        // upgrade
+        public static final int HARDWARE_UPGRADE_NEEDED = 71;
+        public static final int CLIENT_UPGRADE_NEEDED = 72;
+    }
 
     public enum OsName {
         WINDOWS("Windows"),
@@ -51,7 +89,7 @@ public class SystemUtil {
 
         UNKNOWN("Unknown");
 
-        private String name;
+        private final String name;
 
         OsName(String name) {
             this.name = name;
@@ -65,11 +103,11 @@ public class SystemUtil {
 
     /**
      * Returns the operating system name.
-     * 
+     *
      * @return
      */
     public static OsName getOsName() {
-        String os = System.getProperty("os.name").toLowerCase();
+        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
 
         if (os.contains("win")) {
             return OsName.WINDOWS;
@@ -84,7 +122,7 @@ public class SystemUtil {
 
     /**
      * Returns the operating system architecture
-     * 
+     *
      * @return
      */
     public static String getOsArch() {
@@ -92,8 +130,28 @@ public class SystemUtil {
     }
 
     /**
+     * Returns whether the JVM is in 32-bit data model
+     *
+     * @return
+     */
+    public static boolean is32bitJvm() {
+        String model = System.getProperty("sun.arch.data.model");
+        return model != null && model.contains("32");
+    }
+
+    /**
+     * Returns whether the JVM is in 64-bit data model
+     *
+     * @return
+     */
+    public static boolean is64bitJvm() {
+        String model = System.getProperty("sun.arch.data.model");
+        return model != null && model.contains("64");
+    }
+
+    /**
      * Returns the public IP address of this peer.
-     * 
+     *
      * @return an IP address if available, otherwise local address
      */
     public static String getIp() {
@@ -127,7 +185,8 @@ public class SystemUtil {
             con.setConnectTimeout(Constants.DEFAULT_CONNECT_TIMEOUT);
             con.setReadTimeout(Constants.DEFAULT_READ_TIMEOUT);
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(con.getInputStream()));
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(con.getInputStream(), UTF_8));
             String ip = reader.readLine().trim();
             reader.close();
 
@@ -149,37 +208,8 @@ public class SystemUtil {
     }
 
     /**
-     * Reads a password from console with a customized message.
+     * Compares two version strings.
      *
-     * @param prompt
-     *            A message to display before reading password
-     * @return
-     */
-    public static String readPassword(String prompt) {
-        Console console = System.console();
-
-        if (console == null) {
-            System.out.print(prompt);
-            System.out.flush();
-
-            return SCANNER.nextLine();
-        }
-
-        return new String(console.readPassword(prompt));
-    }
-
-    /**
-     * Reads a password from console.
-     *
-     * @return
-     */
-    public static String readPassword() {
-        return readPassword("Please enter your password: ");
-    }
-
-    /**
-     * Compare two version strings.
-     * 
      * @param v1
      * @param v2
      * @return
@@ -190,33 +220,29 @@ public class SystemUtil {
 
     /**
      * Benchmarks the host system.
-     * 
+     *
      * @return
      */
     public static boolean bench() {
-        Runtime rt = Runtime.getRuntime();
-
-        // check JVM with best effort
-        String model = System.getProperty("sun.arch.data.model");
-        if (model != null && model.contains("32")) {
+        // check JVM data model
+        if (is32bitJvm()) {
             logger.info("You're running 32-bit JVM. Please consider upgrading to 64-bit JVM");
             return false;
         }
 
         // check CPU
-        if (rt.availableProcessors() < 2) {
-            logger.info("# of CPU cores = {}", rt.availableProcessors());
+        if (getNumberOfProcessors() < 2) {
+            logger.info("# of CPU cores = {}", getNumberOfProcessors());
             return false;
         }
 
         // check memory
-        if (rt.maxMemory() < 0.8 * 4 * 1024 * 1024 * 1024) {
-            logger.info("Max allowed JVM heap memory size = {} MB", rt.maxMemory() / 1024 / 1024);
+        if (Runtime.getRuntime().maxMemory() < 2L * 1024L * 1024L * 1024L) {
+            logger.info("Max allowed JVM heap memory size = {} MB", Runtime.getRuntime().maxMemory() / 1024 / 1024);
             return false;
         }
 
         return true;
-
     }
 
     /**
@@ -235,7 +261,7 @@ public class SystemUtil {
 
     /**
      * Returns the number of processors.
-     * 
+     *
      * @return
      */
     public static int getNumberOfProcessors() {
@@ -244,7 +270,7 @@ public class SystemUtil {
 
     /**
      * Returns the available physical memory size in bytes
-     * 
+     *
      * @return
      */
     public static long getAvailableMemorySize() {
@@ -254,7 +280,7 @@ public class SystemUtil {
 
     /**
      * Returns the size of heap in use.
-     * 
+     *
      * @return
      */
     public static long getUsedHeapSize() {
@@ -276,6 +302,83 @@ public class SystemUtil {
         } catch (SecurityException e) {
             logger.error("Unable to change localization.", e);
         }
+    }
+
+    private static String version = null;
+
+    /**
+     * Returns the implementation version.
+     *
+     * @return
+     */
+    public static Object getImplementationVersion() {
+        if (version == null) {
+            try {
+                version = IOUtil.readStreamAsString(SemuxGui.class.getClassLoader().getResourceAsStream("VERSION"))
+                        .trim();
+            } catch (IOException ex) {
+                logger.info("Failed to read version.");
+                version = "unknown";
+            }
+        }
+
+        return version;
+    }
+
+    /**
+     * Returns whether Microsoft Visual C++ 2012 Redistributable Package is
+     * installed.
+     *
+     * @return
+     */
+    public static boolean isWindowsVCRedist2012Installed() {
+        if (SystemUtil.getOsName() != OsName.WINDOWS) {
+            throw new UnreachableException();
+        }
+
+        try {
+            if (Platform.is64Bit()) {
+                return Advapi32Util.registryGetIntValue(
+                        Advapi32Util.registryGetKey(
+                                WinReg.HKEY_LOCAL_MACHINE,
+                                "SOFTWARE\\Microsoft\\VisualStudio\\11.0\\VC\\Runtimes\\x64",
+                                WinNT.KEY_READ | WinNT.KEY_WOW64_32KEY).getValue(),
+                        "Installed") == 1;
+            } else {
+                return Advapi32Util.registryGetIntValue(
+                        WinReg.HKEY_LOCAL_MACHINE,
+                        "SOFTWARE\\Microsoft\\VisualStudio\\11.0\\VC\\Runtimes\\x86",
+                        "Installed") == 1;
+            }
+        } catch (Win32Exception e) {
+            logger.error("Failed to read windows registry", e);
+            return false;
+        }
+    }
+
+    /**
+     * Determine if the current Java runtime supports the Java Platform Module
+     * System. Credits to: https://github.com/junit-team/
+     *
+     * @return {@code true} if the Java Platform Module System is available,
+     *         otherwise {@code false}
+     */
+    public static boolean isJavaPlatformModuleSystemAvailable() {
+        try {
+            Class.forName("java.lang.Module");
+            return true;
+        } catch (ClassNotFoundException expected) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if current OS is POSIX compliant.
+     *
+     * @return whether current OS is POSIX compliant
+     */
+    public static boolean isPosix() {
+        return FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     }
 
     private SystemUtil() {

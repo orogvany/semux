@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -13,6 +13,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.semux.core.Amount.Unit.NANO_SEM;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -21,19 +22,22 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.powermock.reflect.Whitebox;
+import org.semux.Network;
 import org.semux.config.Config;
 import org.semux.config.Constants;
-import org.semux.config.DevNetConfig;
+import org.semux.config.DevnetConfig;
+import org.semux.consensus.ValidatorActivatedFork;
 import org.semux.core.BlockchainImpl.StatsType;
-import org.semux.crypto.EdDSA;
-import org.semux.rules.TemporaryDBRule;
+import org.semux.crypto.Key;
+import org.semux.rules.TemporaryDatabaseRule;
 import org.semux.util.Bytes;
 import org.semux.util.MerkleUtil;
 
 public class BlockchainImplTest {
 
     @Rule
-    public TemporaryDBRule temporaryDBFactory = new TemporaryDBRule();
+    public TemporaryDatabaseRule temporaryDBFactory = new TemporaryDatabaseRule();
 
     private Config config;
     private BlockchainImpl chain;
@@ -41,23 +45,23 @@ public class BlockchainImplTest {
     private byte[] coinbase = Bytes.random(30);
     private byte[] prevHash = Bytes.random(32);
 
-    private byte networkId = Constants.DEVNET_ID;
-    private EdDSA key = new EdDSA();
+    private Network network = Network.DEVNET;
+    private Key key = new Key();
     private byte[] from = key.toAddress();
     private byte[] to = Bytes.random(20);
-    private long value = 20;
-    private long fee = 1;
+    private Amount value = NANO_SEM.of(20);
+    private Amount fee = NANO_SEM.of(1);
     private long nonce = 12345;
     private byte[] data = Bytes.of("test");
     private long timestamp = System.currentTimeMillis() - 60 * 1000;
-    private Transaction tx = new Transaction(networkId, TransactionType.TRANSFER, to, value, fee, nonce, timestamp,
+    private Transaction tx = new Transaction(network, TransactionType.TRANSFER, to, value, fee, nonce, timestamp,
             data)
                     .sign(key);
     private TransactionResult res = new TransactionResult(true);
 
     @Before
     public void setUp() {
-        config = new DevNetConfig(Constants.DEFAULT_DATA_DIR);
+        config = new DevnetConfig(Constants.DEFAULT_DATA_DIR);
         chain = new BlockchainImpl(config, temporaryDBFactory);
     }
 
@@ -114,12 +118,12 @@ public class BlockchainImplTest {
 
     @Test
     public void testGetGenesis() {
-        assertArrayEquals(Genesis.load(Constants.NETWORKS[networkId]).getHash(), chain.getGenesis().getHash());
+        assertArrayEquals(Genesis.load(network).getHash(), chain.getGenesis().getHash());
     }
 
     @Test
     public void testGetBlockHeader() {
-        assertArrayEquals(Genesis.load(Constants.NETWORKS[networkId]).getHash(), chain.getBlockHeader(0).getHash());
+        assertArrayEquals(Genesis.load(network).getHash(), chain.getBlockHeader(0).getHash());
 
         long number = 1;
         Block newBlock = createBlock(number);
@@ -141,7 +145,7 @@ public class BlockchainImplTest {
         assertTrue(Arrays.equals(from, t.getFrom()));
         assertTrue(Arrays.equals(to, t.getTo()));
         assertTrue(Arrays.equals(data, t.getData()));
-        assertTrue(t.getValue() == value);
+        assertEquals(value, t.getValue());
         assertTrue(t.getNonce() == nonce);
         assertTrue(t.getTimestamp() == timestamp);
     }
@@ -173,6 +177,21 @@ public class BlockchainImplTest {
         chain.addBlock(newBlock);
 
         assertEquals(newBlock.getNumber(), chain.getTransactionBlockNumber(tx.getHash()));
+    }
+
+    @Test
+    public void testGetCoinbaseTransactionBlockNumber() {
+        for (int i = 1; i <= 10; i++) {
+            byte[] coinbase = new Key().toAddress();
+            Block newBlock = createBlock(i, coinbase, Bytes.EMPTY_BYTES, Collections.emptyList(),
+                    Collections.emptyList());
+            chain.addBlock(newBlock);
+            List<Transaction> transactions = chain.getTransactions(coinbase, 0, 1);
+            assertEquals(1, transactions.size());
+            assertEquals(newBlock.getNumber(), transactions.get(0).getNonce());
+            assertEquals(TransactionType.COINBASE, transactions.get(0).getType());
+            assertEquals(newBlock.getNumber(), chain.getTransactionBlockNumber(transactions.get(0).getHash()));
+        }
     }
 
     @Test
@@ -227,7 +246,7 @@ public class BlockchainImplTest {
 
     @Test
     public void testGetTransactionsSelfTx() {
-        Transaction selfTx = new Transaction(networkId, TransactionType.TRANSFER, key.toAddress(), value, fee, nonce,
+        Transaction selfTx = new Transaction(network, TransactionType.TRANSFER, key.toAddress(), value, fee, nonce,
                 timestamp, data).sign(key);
         Block block = createBlock(
                 1,
@@ -262,15 +281,61 @@ public class BlockchainImplTest {
         assertEquals(2, chain.getValidatorStats(address).getTurnsMissed());
     }
 
+    @Test
+    public void testForkActivated() {
+        final ValidatorActivatedFork fork = ValidatorActivatedFork.UNIFORM_DISTRIBUTION;
+        for (long i = 1; i <= fork.activationBlocksLookup; i++) {
+            chain.addBlock(
+                    createBlock(i, coinbase, BlockHeaderData.v1(new BlockHeaderData.ForkSignalSet(fork)).toBytes(),
+                            Collections.singletonList(tx), Collections.singletonList(res)));
+
+            if (i <= fork.activationBlocks) {
+                for (long j = 0; j <= i; j++) {
+                    assertFalse(chain.forkActivated(i, fork));
+                }
+            } else {
+                for (long j = i; j > fork.activationBlocks; j--) {
+                    assertTrue(chain.forkActivated(j, fork));
+                }
+
+                for (long j = fork.activationBlocks; j >= 0; j--) {
+                    assertFalse(chain.forkActivated(j, fork));
+                }
+            }
+        }
+
+        for (long i = 0; i <= fork.activationBlocks; i++) {
+            assertFalse(chain.forkActivated(i, fork));
+        }
+
+        for (long i = fork.activationBlocks + 1; i <= fork.activationBlocksLookup; i++) {
+            assertTrue(chain.forkActivated(i, fork));
+        }
+    }
+
+    @Test
+    public void testForkCompatibility() {
+        ValidatorActivatedFork fork = ValidatorActivatedFork.UNIFORM_DISTRIBUTION;
+        Block block = createBlock(1, coinbase, BlockHeaderData.v1(new BlockHeaderData.ForkSignalSet(fork)).toBytes(),
+                Collections.singletonList(tx), Collections.singletonList(res));
+        Whitebox.setInternalState(config, "forkUniformDistributionEnabled", false);
+        chain = new BlockchainImpl(config, temporaryDBFactory);
+        chain.addBlock(block);
+    }
+
     private Block createBlock(long number) {
         return createBlock(number, Collections.singletonList(tx), Collections.singletonList(res));
     }
 
     private Block createBlock(long number, List<Transaction> transactions, List<TransactionResult> results) {
+        return createBlock(number, coinbase, Bytes.EMPTY_BYTES, transactions, results);
+    }
+
+    private Block createBlock(long number, byte[] coinbase, byte[] data, List<Transaction> transactions,
+            List<TransactionResult> results) {
         byte[] transactionsRoot = MerkleUtil.computeTransactionsRoot(transactions);
         byte[] resultsRoot = MerkleUtil.computeResultsRoot(results);
         byte[] stateRoot = Bytes.EMPTY_HASH;
-        byte[] data = Bytes.of("test");
         long timestamp = System.currentTimeMillis();
 
         BlockHeader header = new BlockHeader(number, coinbase, prevHash, timestamp, transactionsRoot, resultsRoot,

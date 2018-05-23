@@ -1,15 +1,18 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.log;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.mock;
+import static org.powermock.api.mockito.PowerMockito.mockStatic;
 import static org.powermock.api.mockito.PowerMockito.spy;
+import static org.powermock.api.mockito.PowerMockito.verifyStatic;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -19,27 +22,23 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.stream.Collectors;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.contrib.java.lang.system.ExpectedSystemExit;
 import org.junit.contrib.java.lang.system.SystemErrRule;
 import org.junit.runner.RunWith;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.semux.config.Constants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.core.util.StatusPrinter;
+import org.semux.util.SystemUtil;
 
 @RunWith(PowerMockRunner.class)
+@PowerMockIgnore({ "jdk.internal.*", "javax.management.*", "com.sun.*", "javax.xml.*", "org.xml.sax.*",
+        "org.w3c.dom.*" })
 public class LoggerConfiguratorTest {
-
-    @Rule
-    public final ExpectedSystemExit exit = ExpectedSystemExit.none();
 
     @Rule
     public final SystemErrRule systemErrRule = new SystemErrRule().enableLog();
@@ -53,13 +52,13 @@ public class LoggerConfiguratorTest {
             mockConfigFile.delete();
             mockConfigFile = null;
         }
-
-        ((LoggerContext) LoggerFactory.getILoggerFactory()).reset();
     }
 
     @Test
-    @PrepareForTest(LoggerConfigurator.class)
+    @PrepareForTest({ LoggerConfigurator.class, SystemUtil.class })
     public void testConfigureFactoryDefault() {
+        mockStatic(SystemUtil.class);
+
         // when the user-defined config file doesn't exit
         spy(LoggerConfigurator.class);
         File nonExistFile = mock(File.class);
@@ -75,8 +74,10 @@ public class LoggerConfiguratorTest {
     }
 
     @Test
-    @PrepareForTest(LoggerConfigurator.class)
+    @PrepareForTest({ LoggerConfigurator.class, SystemUtil.class })
     public void testConfigureUserDefined() throws IOException {
+        mockStatic(SystemUtil.class);
+
         // mock user-defined config file configured as DEBUG
         String usedDefinedConfig = getFactoryDefaultConfig().replace("INFO", "ERROR");
         mockConfigFile(usedDefinedConfig);
@@ -91,15 +92,16 @@ public class LoggerConfiguratorTest {
     }
 
     @Test
-    @PrepareForTest(LoggerConfigurator.class)
+    @PrepareForTest({ LoggerConfigurator.class, SystemUtil.class })
     public void testConfigureUserDefinedError() throws IOException {
+        mockStatic(SystemUtil.class);
+
         // mock invalid config file
         mockConfigFile("I am not a XML file");
         spy(LoggerConfigurator.class);
         when(LoggerConfigurator.getConfigurationFile(dataDir)).thenReturn(mockConfigFile);
 
-        // expect system exit
-        exit.expectSystemExitWithStatus(-1);
+        verifyStatic(SystemUtil.class);
         systemErrRule.enableLog();
 
         // execution
@@ -110,20 +112,19 @@ public class LoggerConfiguratorTest {
     }
 
     private void assertRootLogLevel(Level level) {
-        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
-        StatusPrinter.printInCaseOfErrorsOrWarnings(context);
-        assertTrue(context.getLogger(Logger.ROOT_LOGGER_NAME).getLevel() == level);
+        assertEquals(level, LogManager.getRootLogger().getLevel());
     }
 
     private void mockConfigFile(String content) throws IOException {
-        mockConfigFile = File.createTempFile(LoggerConfiguratorTest.class.getSimpleName(), "logback.xml");
+        mockConfigFile = File.createTempFile(LoggerConfiguratorTest.class.getSimpleName(),
+                LoggerConfigurator.CONFIG_XML);
         FileWriter fileWriter = new FileWriter(mockConfigFile);
         fileWriter.write(content);
         fileWriter.close();
     }
 
     private String getFactoryDefaultConfig() {
-        InputStream in = getClass().getResourceAsStream("/" + LoggerConfigurator.LOGBACK_XML);
+        InputStream in = getClass().getResourceAsStream("/" + LoggerConfigurator.CONFIG_XML);
         BufferedReader reader = new BufferedReader(new InputStreamReader(in));
         return reader.lines().collect(Collectors.joining("\n"));
     }

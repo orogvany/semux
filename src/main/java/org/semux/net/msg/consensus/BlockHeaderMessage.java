@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -9,32 +9,30 @@ package org.semux.net.msg.consensus;
 import org.semux.core.BlockHeader;
 import org.semux.net.msg.Message;
 import org.semux.net.msg.MessageCode;
-import org.semux.util.Bytes;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
 
 public class BlockHeaderMessage extends Message {
 
-    private BlockHeader header;
+    private final BlockHeader header;
 
     public BlockHeaderMessage(BlockHeader header) {
-        super(MessageCode.GET_BLOCK_HEADER, null);
+        super(MessageCode.BLOCK_HEADER, null);
 
         this.header = header;
 
         SimpleEncoder enc = new SimpleEncoder();
-        enc.writeBytes(header == null ? Bytes.EMPTY_BYTES : header.toBytes());
+        enc.writeBytes(header.toBytes());
         this.encoded = enc.toBytes();
     }
 
     public BlockHeaderMessage(byte[] encoded) {
-        super(MessageCode.GET_BLOCK, null);
+        super(MessageCode.BLOCK_HEADER, null);
 
         this.encoded = encoded;
 
         SimpleDecoder dec = new SimpleDecoder(encoded);
-        byte[] bytes = dec.readBytes();
-        this.header = (bytes.length == 0) ? null : BlockHeader.fromBytes(bytes);
+        this.header = BlockHeader.fromBytes(dec.readBytes());
     }
 
     public BlockHeader getHeader() {

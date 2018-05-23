@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -21,29 +21,35 @@ import javax.swing.JPasswordField;
 
 import org.semux.core.Wallet;
 import org.semux.gui.Action;
-import org.semux.gui.SemuxGUI;
+import org.semux.gui.SemuxGui;
 import org.semux.gui.SwingUtil;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 
 public class ChangePasswordDialog extends JDialog implements ActionListener {
 
-    private transient SemuxGUI gui;
+    private static final long serialVersionUID = 1L;
 
-    public ChangePasswordDialog(SemuxGUI gui, JFrame parent) {
-        super(parent, GUIMessages.get("ChangePassword"));
+    private final transient SemuxGui gui;
+
+    private final JPasswordField oldPasswordField;
+    private final JPasswordField passwordField;
+    private final JPasswordField repeatField;
+
+    public ChangePasswordDialog(SemuxGui gui, JFrame parent) {
+        super(parent, GuiMessages.get("ChangePassword"));
         this.gui = gui;
 
-        JLabel lblOldPassword = new JLabel(GUIMessages.get("OldPassword") + ":");
-        JLabel lblPassword = new JLabel(GUIMessages.get("Password") + ":");
-        JLabel lblRepeat = new JLabel(GUIMessages.get("RepeatPassword") + ":");
+        JLabel lblOldPassword = new JLabel(GuiMessages.get("OldPassword") + ":");
+        JLabel lblPassword = new JLabel(GuiMessages.get("Password") + ":");
+        JLabel lblRepeat = new JLabel(GuiMessages.get("RepeatPassword") + ":");
 
         oldPasswordField = new JPasswordField();
         passwordField = new JPasswordField();
         repeatField = new JPasswordField();
 
-        JButton btnOk = SwingUtil.createDefaultButton(GUIMessages.get("OK"), this, Action.OK);
+        JButton btnOk = SwingUtil.createDefaultButton(GuiMessages.get("OK"), this, Action.OK);
 
-        JButton btnCancel = SwingUtil.createDefaultButton(GUIMessages.get("Cancel"), this, Action.CANCEL);
+        JButton btnCancel = SwingUtil.createDefaultButton(GuiMessages.get("Cancel"), this, Action.CANCEL);
 
         // @formatter:off
         GroupLayout groupLayout = new GroupLayout(getContentPane());
@@ -98,11 +104,6 @@ public class ChangePasswordDialog extends JDialog implements ActionListener {
         this.setLocationRelativeTo(parent);
     }
 
-    private static final long serialVersionUID = 1L;
-    private JPasswordField oldPasswordField;
-    private JPasswordField passwordField;
-    private JPasswordField repeatField;
-
     @Override
     public void actionPerformed(ActionEvent e) {
         Action action = Action.valueOf(e.getActionCommand());
@@ -116,13 +117,13 @@ public class ChangePasswordDialog extends JDialog implements ActionListener {
             Wallet wallet = gui.getKernel().getWallet();
 
             if (!newPassword.equals(newPasswordRepeat)) {
-                JOptionPane.showMessageDialog(this, GUIMessages.get("RepeatPasswordError"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("RepeatPasswordError"));
             } else if (!wallet.unlock(oldPassword)) {
-                JOptionPane.showMessageDialog(this, GUIMessages.get("IncorrectPassword"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("IncorrectPassword"));
             } else {
                 wallet.changePassword(newPassword);
                 wallet.flush();
-                JOptionPane.showMessageDialog(this, GUIMessages.get("PasswordChanged"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("PasswordChanged"));
                 this.dispose();
             }
             break;

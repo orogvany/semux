@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -11,24 +11,25 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.semux.core.Amount.Unit.NANO_SEM;
 
 import java.util.Collections;
 
 import org.junit.Test;
 import org.semux.core.state.Account;
-import org.semux.crypto.EdDSA;
+import org.semux.crypto.Key;
 
 public class WalletAccountTest {
 
     @Test
     public void testKey() {
-        EdDSA key = new EdDSA();
-        Account acc = new Account(key.toAddress(), 1, 2, 3);
-        WalletAccount wa = new WalletAccount(key, acc);
+        Key key = new Key();
+        Account acc = new Account(key.toAddress(), NANO_SEM.of(1), NANO_SEM.of(2), 3);
+        WalletAccount wa = new WalletAccount(key, acc, "test account");
 
         assertThat(wa.getAddress(), equalTo(key.toAddress()));
-        assertThat(wa.getAvailable(), equalTo(1L));
-        assertThat(wa.getLocked(), equalTo(2L));
+        assertThat(wa.getAvailable(), equalTo(NANO_SEM.of(1)));
+        assertThat(wa.getLocked(), equalTo(NANO_SEM.of(2)));
         assertThat(wa.getNonce(), equalTo(3L));
 
         assertTrue(wa.getTransactions().isEmpty());
@@ -38,16 +39,16 @@ public class WalletAccountTest {
 
         assertEquals(key, wa.getKey());
 
-        EdDSA key2 = new EdDSA();
+        Key key2 = new Key();
         wa.setKey(key2);
         assertEquals(key2, wa.getKey());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testMismatch() {
-        EdDSA key = new EdDSA();
-        Account acc = new Account(new EdDSA().toAddress(), 1, 2, 3);
-        new WalletAccount(key, acc);
+        Key key = new Key();
+        Account acc = new Account(new Key().toAddress(), NANO_SEM.of(1), NANO_SEM.of(2), 3);
+        new WalletAccount(key, acc, "test account");
     }
 
 }

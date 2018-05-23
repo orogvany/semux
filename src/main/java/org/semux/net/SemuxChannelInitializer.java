@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -22,11 +22,11 @@ public class SemuxChannelInitializer extends ChannelInitializer<NioSocketChannel
 
     private static final Logger logger = LoggerFactory.getLogger(SemuxChannelInitializer.class);
 
-    private Kernel kernel;
-    private ChannelManager channelMgr;
+    private final Kernel kernel;
+    private final ChannelManager channelMgr;
 
-    private Node remoteNode;
-    private boolean discoveryMode;
+    private final Node remoteNode;
+    private final boolean discoveryMode;
 
     /**
      * Create an instance of SemuxChannelInitializer.
@@ -57,8 +57,10 @@ public class SemuxChannelInitializer extends ChannelInitializer<NioSocketChannel
             logger.debug("New {} channel: remoteAddress = {}:{}", isServerMode() ? "inbound" : "outbound",
                     address.getAddress().getHostAddress(), address.getPort());
 
-            if (isServerMode() && !channelMgr.isAcceptable(address)) {
-                logger.debug("Not allowed connection from: {}", ch);
+            if (!channelMgr.isAcceptable(address)) {
+                if (logger.isDebugEnabled())
+                    logger.debug("Disallowed {} connection: {}", isServerMode() ? "inbound" : "outbound",
+                            address.toString());
                 ch.disconnect();
                 return;
             }

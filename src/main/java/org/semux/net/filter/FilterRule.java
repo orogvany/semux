@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.validator.routines.InetAddressValidator;
-import org.semux.net.filter.exception.ParseException;
+import org.semux.net.filter.exception.IpFilterJsonParseException;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -24,7 +24,7 @@ import io.netty.handler.ipfilter.IpSubnetFilterRule;
 
 /**
  * FilterRule is a proxy class of {@link IpSubnetFilterRule} and
- * {@link IpSingleFilterRule}
+ * {@link SingleIpFilterRule}
  */
 public class FilterRule implements IpFilterRule {
 
@@ -34,10 +34,17 @@ public class FilterRule implements IpFilterRule {
     private static final InetAddressValidator inetAddressValidator = new InetAddressValidator();
 
     /**
+     * The raw address or CIDR notation in String
+     */
+    @JsonProperty("address")
+    private final String address;
+
+    /**
      * The actual instance of IpFilterRule to be matched against of.
      */
     private final IpFilterRule ipFilterRule;
 
+    @JsonProperty("type")
     private final IpFilterRuleType ruleType;
 
     /**
@@ -47,7 +54,7 @@ public class FilterRule implements IpFilterRule {
      * The following cases are handled:
      * <ul>
      * <li>CIDR Notation: {@link IpSubnetFilterRule}</li>
-     * <li>IP Address: {@link IpSingleFilterRule}</li>
+     * <li>IP Address: {@link SingleIpFilterRule}</li>
      * </ul>
      * 
      * @param address
@@ -57,6 +64,7 @@ public class FilterRule implements IpFilterRule {
      * @throws UnknownHostException
      */
     public FilterRule(String address, IpFilterRuleType ruleType) throws UnknownHostException {
+        this.address = address;
         this.ruleType = ruleType;
 
         Matcher matcher = CIDR_PATTERN.matcher(address);
@@ -73,7 +81,7 @@ public class FilterRule implements IpFilterRule {
             int cidrPrefix = Integer.parseInt(matcher.group("cidrPrefix"));
             ipFilterRule = new IpSubnetFilterRule(address, cidrPrefix, ruleType);
         } else {
-            ipFilterRule = new IpSingleFilterRule(address, ruleType);
+            ipFilterRule = new SingleIpFilterRule(address, ruleType);
         }
     }
 
@@ -101,14 +109,15 @@ public class FilterRule implements IpFilterRule {
     }
 
     @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
-    public static FilterRule jsonCreator(@JsonProperty(value = "type", required = true) String type,
+    public static FilterRule jsonCreator(
+            @JsonProperty(value = "type", required = true) String type,
             @JsonProperty(value = "address", required = true) String address) {
         try {
             return new FilterRule(address, IpFilterRuleType.valueOf(type));
         } catch (IllegalArgumentException | NullPointerException ex) {
-            throw new ParseException("Rule type of ip filter must be either ACCEPT or REJECT");
+            throw new IpFilterJsonParseException("Rule type of ip filter must be either ACCEPT or REJECT");
         } catch (UnknownHostException ex) {
-            throw new ParseException(String.format("Invalid address %s", address), ex);
+            throw new IpFilterJsonParseException(String.format("Invalid address %s", address), ex);
         }
     }
 }

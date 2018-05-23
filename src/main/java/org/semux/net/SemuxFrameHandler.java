@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -21,7 +21,7 @@ public class SemuxFrameHandler extends ByteToMessageCodec<Frame> {
 
     private static final Logger logger = LoggerFactory.getLogger(SemuxFrameHandler.class);
 
-    private Config config;
+    private final Config config;
 
     public SemuxFrameHandler(Config config) {
         this.config = config;

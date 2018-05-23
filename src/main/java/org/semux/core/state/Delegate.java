@@ -1,23 +1,27 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core.state;
 
+import static org.semux.core.Amount.ZERO;
+
 import java.util.Arrays;
 
+import org.semux.core.Amount;
 import org.semux.crypto.Hex;
 import org.semux.util.Bytes;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
 
 public class Delegate {
-    protected byte[] address;
-    protected byte[] name;
-    protected long registeredAt;
-    protected long votes;
+    protected final byte[] address;
+    protected final byte[] name;
+    protected final long registeredAt;
+
+    protected Amount votes = ZERO;
 
     /**
      * Create a delegate instance.
@@ -27,7 +31,7 @@ public class Delegate {
      * @param registeredAt
      * @param votes
      */
-    public Delegate(byte[] address, byte[] name, long registeredAt, long votes) {
+    public Delegate(byte[] address, byte[] name, long registeredAt, Amount votes) {
         this.address = address;
         this.name = name;
         this.registeredAt = registeredAt;
@@ -54,11 +58,11 @@ public class Delegate {
         return registeredAt;
     }
 
-    public long getVotes() {
+    public Amount getVotes() {
         return votes;
     }
 
-    void setVotes(long votes) {
+    void setVotes(Amount votes) {
         this.votes = votes;
     }
 
@@ -71,7 +75,7 @@ public class Delegate {
         SimpleEncoder enc = new SimpleEncoder();
         enc.writeBytes(name);
         enc.writeLong(registeredAt);
-        enc.writeLong(votes);
+        enc.writeAmount(votes);
 
         return enc.toBytes();
     }
@@ -87,7 +91,7 @@ public class Delegate {
         SimpleDecoder dec = new SimpleDecoder(bytes);
         byte[] name = dec.readBytes();
         long registeredAt = dec.readLong();
-        long votes = dec.readLong();
+        Amount votes = dec.readAmount();
 
         return new Delegate(address, name, registeredAt, votes);
     }
@@ -95,7 +99,7 @@ public class Delegate {
     @Override
     public String toString() {
         return "Delegate [address=" + Hex.encode(address) + ", name=" + Arrays.toString(name) + ", registeredAt="
-                + registeredAt + ", votes=" + votes + "]";
+                + registeredAt + ", votes=" + votes.getNano() + "]";
     }
 
 }

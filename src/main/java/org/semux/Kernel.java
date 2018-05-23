@@ -1,26 +1,26 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.xml.parsers.ParserConfigurationException;
 
-import org.apache.commons.lang3.tuple.Pair;
 import org.bitlet.weupnp.GatewayDevice;
 import org.bitlet.weupnp.GatewayDiscover;
 import org.semux.api.http.SemuxApiService;
 import org.semux.config.Config;
-import org.semux.consensus.SemuxBFT;
+import org.semux.config.Constants;
+import org.semux.consensus.SemuxBft;
 import org.semux.consensus.SemuxSync;
 import org.semux.core.Blockchain;
 import org.semux.core.BlockchainImpl;
@@ -28,14 +28,20 @@ import org.semux.core.Consensus;
 import org.semux.core.PendingManager;
 import org.semux.core.SyncManager;
 import org.semux.core.Wallet;
-import org.semux.crypto.EdDSA;
-import org.semux.db.DBFactory;
-import org.semux.db.DBName;
-import org.semux.db.LevelDB.LevelDBFactory;
+import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
+import org.semux.db.DatabaseFactory;
+import org.semux.db.DatabaseName;
+import org.semux.db.LeveldbDatabase;
+import org.semux.db.LeveldbDatabase.LeveldbFactory;
+import org.semux.event.KernelBootingEvent;
+import org.semux.event.PubSub;
+import org.semux.event.PubSubFactory;
 import org.semux.net.ChannelManager;
 import org.semux.net.NodeManager;
 import org.semux.net.PeerClient;
 import org.semux.net.PeerServer;
+import org.semux.util.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -59,22 +65,23 @@ public class Kernel {
         System.setProperty("jna.nosys", "true");
     }
 
-    protected static final Logger logger = LoggerFactory.getLogger(Kernel.class);
+    private static final Logger logger = LoggerFactory.getLogger(Kernel.class);
+
+    private static final PubSub pubSub = PubSubFactory.getDefault();
 
     public enum State {
         STOPPED, BOOTING, RUNNING, STOPPING
     }
 
     protected State state = State.STOPPED;
-    protected List<Pair<String, Runnable>> shutdownHooks = new CopyOnWriteArrayList<>();
 
-    protected ReentrantReadWriteLock stateLock = new ReentrantReadWriteLock();
+    protected final ReentrantReadWriteLock stateLock = new ReentrantReadWriteLock();
     protected Config config = null;
 
     protected Wallet wallet;
-    protected EdDSA coinbase;
+    protected Key coinbase;
 
-    protected DBFactory dbFactory;
+    protected DatabaseFactory dbFactory;
     protected Blockchain chain;
     protected PeerClient client;
 
@@ -87,7 +94,7 @@ public class Kernel {
 
     protected Thread consThread;
     protected SemuxSync sync;
-    protected SemuxBFT cons;
+    protected SemuxBft cons;
 
     /**
      * Creates a kernel instance and initializes it.
@@ -99,7 +106,7 @@ public class Kernel {
      * @param coinbase
      *            the coinbase key
      */
-    public Kernel(Config config, Wallet wallet, EdDSA coinbase) {
+    public Kernel(Config config, Wallet wallet, Key coinbase) {
         this.config = config;
         this.wallet = wallet;
         this.coinbase = coinbase;
@@ -113,18 +120,23 @@ public class Kernel {
             return;
         } else {
             state = State.BOOTING;
+            pubSub.publish(new KernelBootingEvent());
         }
 
         // ====================================
-        // initialization
+        // print system info
         // ====================================
         logger.info(config.getClientId());
-        logger.info("System booting up: networkId = {}, networkVersion = {}, coinbase = {}", config.networkId(),
+        logger.info("System booting up: network = {}, networkVersion = {}, coinbase = {}", config.network(),
                 config.networkVersion(),
                 coinbase);
         printSystemInfo();
 
-        dbFactory = new LevelDBFactory(config.dataDir());
+        // ====================================
+        // initialize blockchain database
+        // ====================================
+        relocateDatabaseIfNeeded();
+        dbFactory = new LeveldbFactory(config.databaseDir());
         chain = new BlockchainImpl(config, dbFactory);
         long number = chain.getLatestBlockNumber();
         logger.info("Latest block number = {}", number);
@@ -162,7 +174,7 @@ public class Kernel {
         // start sync/consensus
         // ====================================
         sync = new SemuxSync(this);
-        cons = new SemuxBFT(this);
+        cons = new SemuxBft(this);
 
         consThread = new Thread(cons::start, "cons");
         consThread.start();
@@ -175,9 +187,72 @@ public class Kernel {
         // ====================================
         // register shutdown hook
         // ====================================
-        Runtime.getRuntime().addShutdownHook(new Thread(this::stop, "shutdown-hook"));
+        Launcher.registerShutdownHook("kernel", this::stop);
 
         state = State.RUNNING;
+    }
+
+    /**
+     * Relocates database to the new location.
+     * <p>
+     * Old file structure:
+     * <ul>
+     * <li><code>./config</code></li>
+     * <li><code>./database</code></li>
+     * </ul>
+     *
+     * New file structure:
+     * <ul>
+     * <li><code>./config</code></li>
+     * <li><code>./database/mainnet</code></li>
+     * <li><code>./database/testnet</code></li>
+     * </ul>
+     *
+     */
+    protected void relocateDatabaseIfNeeded() {
+        File databaseDir = new File(config.dataDir(), Constants.DATABASE_DIR);
+        File blocksDir = new File(databaseDir, "block");
+
+        if (blocksDir.exists()) {
+            LeveldbDatabase db = new LeveldbDatabase(blocksDir);
+            byte[] header = db.get(Bytes.merge((byte) 0x00, Bytes.of(0L)));
+            db.close();
+
+            if (header == null || header.length < 33) {
+                logger.info("Unable to decode genesis header. Quit relocating");
+            } else {
+                String hash = Hex.encode(Arrays.copyOfRange(header, 1, 33));
+                switch (hash) {
+                case "1d4fb49444a5a14dbe68f5f6109808c68e517b893c1e9bbffce9d199b5037c8e":
+                    moveDatabase(databaseDir, config.databaseDir(Network.MAINNET));
+                    break;
+                case "abfe38563bed10ec431a4a9ad344a212ef62f6244c15795324cc06c2e8fa0f8d":
+                    moveDatabase(databaseDir, config.databaseDir(Network.TESTNET));
+                    break;
+                default:
+                    logger.info("Unable to recognize genesis hash. Quit relocating");
+                }
+            }
+        }
+    }
+
+    /**
+     * Moves database to another directory.
+     *
+     * @param srcDir
+     * @param dstDir
+     */
+    private void moveDatabase(File srcDir, File dstDir) {
+        // store the sub-folders
+        File[] files = srcDir.listFiles();
+
+        // create the destination folder
+        dstDir.mkdirs();
+
+        // move to destination
+        for (File f : files) {
+            f.renameTo(new File(dstDir, f.getName()));
+        }
     }
 
     /**
@@ -220,7 +295,7 @@ public class Kernel {
         }
 
         // java version
-        logger.info("Java: version = {}, xms = {} MB", System.getProperty("java.version"),
+        logger.info("Java: version = {}, xmx = {} MB", System.getProperty("java.version"),
                 Runtime.getRuntime().maxMemory() / mb);
     }
 
@@ -255,16 +330,6 @@ public class Kernel {
             state = State.STOPPING;
         }
 
-        // shutdown hooks
-        for (Pair<String, Runnable> r : shutdownHooks) {
-            try {
-                logger.info("Shutting down {}", r.getLeft());
-                r.getRight().run();
-            } catch (Exception e) {
-                logger.info("Failed to shutdown {}", r.getLeft(), e);
-            }
-        }
-
         // stop consensus
         try {
             sync.stop();
@@ -291,22 +356,15 @@ public class Kernel {
         // make sure no thread is reading/writing the state
         ReentrantReadWriteLock.WriteLock lock = stateLock.writeLock();
         lock.lock();
-        for (DBName name : DBName.values()) {
-            dbFactory.getDB(name).close();
+        try {
+            for (DatabaseName name : DatabaseName.values()) {
+                dbFactory.getDB(name).close();
+            }
+        } finally {
+            lock.unlock();
         }
-        lock.unlock();
 
         state = State.STOPPED;
-    }
-
-    /**
-     * Registers a shutdown hook.
-     * 
-     * @param name
-     * @param runnable
-     */
-    public void registerShutdownHook(String name, Runnable runnable) {
-        shutdownHooks.add(Pair.of(name, runnable));
     }
 
     /**
@@ -332,7 +390,7 @@ public class Kernel {
      * 
      * @return
      */
-    public EdDSA getCoinbase() {
+    public Key getCoinbase() {
         return coinbase;
     }
 
@@ -433,5 +491,9 @@ public class Kernel {
      */
     public PeerServer getP2p() {
         return p2p;
+    }
+
+    public DatabaseFactory getDbFactory() {
+        return dbFactory;
     }
 }

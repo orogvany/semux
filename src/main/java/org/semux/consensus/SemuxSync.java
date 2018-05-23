@@ -1,14 +1,21 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.consensus;
 
+import static org.semux.core.Amount.ZERO;
+import static org.semux.core.Amount.sum;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.MathContext;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -33,6 +40,8 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.Pair;
 import org.semux.Kernel;
 import org.semux.config.Config;
+import org.semux.config.Constants;
+import org.semux.core.Amount;
 import org.semux.core.Block;
 import org.semux.core.BlockHeader;
 import org.semux.core.Blockchain;
@@ -42,15 +51,15 @@ import org.semux.core.TransactionExecutor;
 import org.semux.core.TransactionResult;
 import org.semux.core.state.AccountState;
 import org.semux.core.state.DelegateState;
-import org.semux.crypto.EdDSA;
-import org.semux.crypto.EdDSA.Signature;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.net.Channel;
 import org.semux.net.ChannelManager;
 import org.semux.net.msg.Message;
 import org.semux.net.msg.ReasonCode;
 import org.semux.net.msg.consensus.BlockMessage;
 import org.semux.net.msg.consensus.GetBlockMessage;
+import org.semux.util.ByteArray;
 import org.semux.util.TimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,9 +113,11 @@ public class SemuxSync implements SyncManager {
     private final Object lock = new Object();
 
     // current and target heights
+    private AtomicLong begin = new AtomicLong();
     private AtomicLong current = new AtomicLong();
     private AtomicLong target = new AtomicLong();
 
+    private Instant beginningInstant;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public SemuxSync(Kernel kernel) {
@@ -120,7 +131,7 @@ public class SemuxSync implements SyncManager {
     @Override
     public void start(long targetHeight) {
         if (isRunning.compareAndSet(false, true)) {
-            Instant begin = Instant.now();
+            beginningInstant = Instant.now();
 
             logger.info("Syncing started, best known block = {}", targetHeight - 1);
 
@@ -130,6 +141,7 @@ public class SemuxSync implements SyncManager {
                 toComplete.clear();
                 toProcess.clear();
 
+                begin.set(chain.getLatestBlockNumber() + 1);
                 current.set(chain.getLatestBlockNumber() + 1);
                 target.set(targetHeight);
                 latestQueuedTask.set(chain.getLatestBlockNumber());
@@ -144,7 +156,7 @@ public class SemuxSync implements SyncManager {
             while (isRunning.get()) {
                 synchronized (isRunning) {
                     try {
-                        isRunning.wait();
+                        isRunning.wait(1000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         logger.info("Sync manager got interrupted");
@@ -158,7 +170,7 @@ public class SemuxSync implements SyncManager {
             process.cancel(false);
 
             Instant end = Instant.now();
-            logger.info("Syncing finished, took {}", TimeUtil.formatDuration(Duration.between(begin, end)));
+            logger.info("Syncing finished, took {}", TimeUtil.formatDuration(Duration.between(beginningInstant, end)));
         }
     }
 
@@ -186,14 +198,12 @@ public class SemuxSync implements SyncManager {
         case BLOCK: {
             BlockMessage blockMsg = (BlockMessage) msg;
             Block block = blockMsg.getBlock();
-            if (block != null) {
-                synchronized (lock) {
-                    if (toDownload.remove(block.getNumber())) {
-                        growToDownloadQueue();
-                    }
-                    toComplete.remove(block.getNumber());
-                    toProcess.add(Pair.of(block, channel));
+            synchronized (lock) {
+                if (toDownload.remove(block.getNumber())) {
+                    growToDownloadQueue();
                 }
+                toComplete.remove(block.getNumber());
+                toProcess.add(Pair.of(block, channel));
             }
             break;
         }
@@ -286,8 +296,7 @@ public class SemuxSync implements SyncManager {
 
         for (long task = latestQueuedTask.get() + 1; //
                 task < target.get() && toDownload.size() < MAX_QUEUED_BLOCKS; //
-                task++ //
-                ) {
+                task++) {
             latestQueuedTask.accumulateAndGet(task, (prev, next) -> next > prev ? next : prev);
             if (!chain.hasBlock(task)) {
                 toDownload.add(task);
@@ -301,7 +310,7 @@ public class SemuxSync implements SyncManager {
         }
 
         long latest = chain.getLatestBlockNumber();
-        if (latest + 1 == target.get()) {
+        if (latest + 1 >= target.get()) {
             stop();
             return; // This is important because stop() only notify
         }
@@ -369,32 +378,46 @@ public class SemuxSync implements SyncManager {
         // [1] check block header
         Block latest = chain.getLatestBlock();
         if (!Block.validateHeader(latest.getHeader(), header)) {
-            logger.debug("Invalid block header");
+            logger.error("Invalid block header");
+            return false;
+        }
+
+        // validate checkpoint
+        if (config.checkpoints().containsKey(header.getNumber()) &&
+                !Arrays.equals(header.getHash(), config.checkpoints().get(header.getNumber()))) {
+            logger.error("Checkpoint validation failed, checkpoint is {} => {}, getting {}", header.getNumber(),
+                    Hex.encode0x(config.checkpoints().get(header.getNumber())),
+                    Hex.encode0x(header.getHash()));
+            return false;
+        }
+
+        // blocks should never be forged by coinbase magic account
+        if (Arrays.equals(header.getCoinbase(), Constants.COINBASE_ADDRESS)) {
+            logger.error("A block forged by the coinbase magic account is not allowed");
             return false;
         }
 
         // [2] check transactions and results
-        if (!Block.validateTransactions(header, transactions, config.networkId())
+        if (!Block.validateTransactions(header, transactions, config.network())
                 || transactions.stream().mapToInt(Transaction::size).sum() > config.maxBlockTransactionsSize()) {
-            logger.debug("Invalid block transactions");
+            logger.error("Invalid block transactions");
             return false;
         }
         if (!Block.validateResults(header, block.getResults())) {
-            logger.debug("Invalid results");
+            logger.error("Invalid results");
             return false;
         }
 
         if (transactions.stream().anyMatch(tx -> chain.hasTransaction(tx.getHash()))) {
-            logger.warn("Duplicated transaction hash is not allowed");
+            logger.error("Duplicated transaction hash is not allowed");
             return false;
         }
 
-        TransactionExecutor transactionExecutor = new TransactionExecutor(config);
-
         // [3] evaluate transactions
+        TransactionExecutor transactionExecutor = new TransactionExecutor(config);
         List<TransactionResult> results = transactionExecutor.execute(transactions, asSnapshot, dsSnapshot);
         if (!Block.validateResults(header, results)) {
-            logger.debug("Invalid transactions");
+            logger.error("Invalid transactions");
             return false;
         }
 
@@ -403,26 +426,26 @@ public class SemuxSync implements SyncManager {
     }
 
     protected boolean validateBlockVotes(Block block) {
-        // check 2/3 rule of pBFT
-        List<String> validators = chain.getValidators();
+        Set<String> validators = new HashSet<>(chain.getValidators());
         int twoThirds = (int) Math.ceil(validators.size() * 2.0 / 3.0);
-        if (block.getVotes().size() < twoThirds) {
-            logger.debug("Invalid BFT votes: {} < {}", block.getVotes().size(), twoThirds);
-            return false;
-        }
 
-        // check vote signatures
-        Set<String> set = new HashSet<>(validators);
         Vote vote = new Vote(VoteType.PRECOMMIT, Vote.VALUE_APPROVE, block.getNumber(), block.getView(),
                 block.getHash());
         byte[] encoded = vote.getEncoded();
-        for (Signature sig : block.getVotes()) {
-            String a = Hex.encode(sig.getAddress());
 
-            if (!set.contains(a) || !EdDSA.verify(encoded, sig)) {
-                logger.debug("Invalid BFT vote: signer = {}", a);
-                return false;
-            }
+        // check validity of votes
+        if (!block.getVotes().stream()
+                .allMatch(sig -> Key.verify(encoded, sig) && validators.contains(Hex.encode(sig.getAddress())))) {
+            logger.debug("Block votes are invalid");
+            return false;
+        }
+
+        // at least two thirds voters
+        if (block.getVotes().stream()
+                .map(sig -> new ByteArray(sig.getA()))
+                .collect(Collectors.toSet()).size() < twoThirds) {
+            logger.debug("Not enough votes, needs 2/3+");
+            return false;
         }
 
         return true;
@@ -430,11 +453,10 @@ public class SemuxSync implements SyncManager {
 
     protected boolean applyBlock(Block block, AccountState asSnapshot, DelegateState dsSnapshot) {
         // [5] apply block reward and tx fees
-        long reward = config.getBlockReward(block.getNumber());
-        for (Transaction tx : block.getTransactions()) {
-            reward += tx.getFee();
-        }
-        if (reward > 0) {
+        Amount txsReward = block.getTransactions().stream().map(Transaction::getFee).reduce(ZERO, Amount::sum);
+        Amount reward = sum(config.getBlockReward(block.getNumber()), txsReward);
+
+        if (reward.gt0()) {
             asSnapshot.adjustAvailable(block.getCoinbase(), reward);
         }
 
@@ -461,18 +483,33 @@ public class SemuxSync implements SyncManager {
 
     @Override
     public SemuxSyncProgress getProgress() {
-        return new SemuxSyncProgress(current.get(), target.get());
+        return new SemuxSyncProgress(
+                begin.get(),
+                current.get(),
+                target.get(),
+                Duration.between(beginningInstant != null ? beginningInstant : Instant.now(), Instant.now()));
     }
 
     public static class SemuxSyncProgress implements SyncManager.Progress {
+
+        final long startingHeight;
 
         final long currentHeight;
 
         final long targetHeight;
 
-        public SemuxSyncProgress(long currentHeight, long targetHeight) {
+        final Duration duration;
+
+        public SemuxSyncProgress(long startingHeight, long currentHeight, long targetHeight, Duration duration) {
+            this.startingHeight = startingHeight;
             this.currentHeight = currentHeight;
             this.targetHeight = targetHeight;
+            this.duration = duration;
+        }
+
+        @Override
+        public long getStartingHeight() {
+            return startingHeight;
         }
 
         @Override
@@ -483,6 +520,31 @@ public class SemuxSync implements SyncManager {
         @Override
         public long getTargetHeight() {
             return targetHeight;
+        }
+
+        @Override
+        public Duration getSyncEstimation() {
+            Long speed = getSpeed();
+            if (speed == null || speed == 0) {
+                return null;
+            }
+
+            return Duration.ofMillis(BigInteger.valueOf(getTargetHeight())
+                    .subtract(BigInteger.valueOf(getCurrentHeight()))
+                    .multiply(BigInteger.valueOf(speed))
+                    .longValue());
+        }
+
+        private Long getSpeed() {
+            Long downloadedBlocks = currentHeight - startingHeight;
+            if (downloadedBlocks <= 0 || duration.toMillis() == 0) {
+                return null;
+            }
+
+            return BigDecimal.valueOf(duration.toMillis())
+                    .divide(BigDecimal.valueOf(downloadedBlocks), MathContext.DECIMAL64)
+                    .round(MathContext.DECIMAL64)
+                    .longValue();
         }
     }
 }

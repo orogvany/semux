@@ -1,10 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core;
+
+import static org.semux.core.Amount.Unit.NANO_SEM;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.semux.Network;
 import org.semux.crypto.Hex;
 import org.semux.util.ByteArray;
 import org.semux.util.ByteArray.ByteArrayKeyDeserializer;
@@ -31,11 +34,11 @@ public class Genesis extends Block {
     private static final Logger logger = LoggerFactory.getLogger(Genesis.class);
 
     @JsonDeserialize(keyUsing = ByteArrayKeyDeserializer.class)
-    private Map<ByteArray, Premine> premines;
+    private final Map<ByteArray, Premine> premines;
 
-    private Map<String, byte[]> delegates;
+    private final Map<String, byte[]> delegates;
 
-    private Map<String, Object> config;
+    private final Map<String, Object> config;
 
     /**
      * Creates a {@link Genesis} block instance.
@@ -89,9 +92,9 @@ public class Genesis extends Block {
      * 
      * @return
      */
-    public static Genesis load(String name) {
+    public static Genesis load(Network network) {
         try {
-            InputStream in = Genesis.class.getResourceAsStream("/genesis/" + name + ".json");
+            InputStream in = Genesis.class.getResourceAsStream("/genesis/" + network.label() + ".json");
 
             if (in != null) {
                 return new ObjectMapper().readValue(in, Genesis.class);
@@ -100,7 +103,7 @@ public class Genesis extends Block {
             logger.error("Failed to load genesis file", e);
         }
 
-        SystemUtil.exitAsync(-1);
+        SystemUtil.exitAsync(SystemUtil.Code.FAILED_TO_LOAD_GENESIS);
         return null;
     }
 
@@ -132,11 +135,11 @@ public class Genesis extends Block {
     }
 
     public static class Premine {
-        private byte[] address;
-        private long amount;
-        private String note;
+        private final byte[] address;
+        private final Amount amount;
+        private final String note;
 
-        public Premine(byte[] address, long amount, String note) {
+        public Premine(byte[] address, Amount amount, String note) {
             this.address = address;
             this.amount = amount;
             this.note = note;
@@ -145,14 +148,14 @@ public class Genesis extends Block {
         @JsonCreator
         public Premine(@JsonProperty("address") String address, @JsonProperty("amount") long amount,
                 @JsonProperty("note") String note) {
-            this(Hex.decode0x(address), amount, note);
+            this(Hex.decode0x(address), NANO_SEM.of(amount), note);
         }
 
         public byte[] getAddress() {
             return address;
         }
 
-        public long getAmount() {
+        public Amount getAmount() {
             return amount;
         }
 

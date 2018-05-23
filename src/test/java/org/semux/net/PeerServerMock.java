@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -11,21 +11,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.semux.Kernel;
 import org.semux.KernelMock;
 import org.semux.config.Config;
-import org.semux.consensus.SemuxBFT;
+import org.semux.consensus.SemuxBft;
 import org.semux.consensus.SemuxSync;
 import org.semux.core.BlockchainImpl;
 import org.semux.core.PendingManager;
-import org.semux.db.DBFactory;
-import org.semux.db.DBName;
-import org.semux.db.KVDB;
-import org.semux.db.LevelDB.LevelDBFactory;
+import org.semux.db.Database;
+import org.semux.db.DatabaseFactory;
+import org.semux.db.DatabaseName;
+import org.semux.db.LeveldbDatabase.LeveldbFactory;
 
 public class PeerServerMock {
 
     private KernelMock kernel;
     private PeerServer server;
 
-    private DBFactory dbFactory;
+    private DatabaseFactory dbFactory;
     private PeerClient client;
 
     private AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -38,7 +38,7 @@ public class PeerServerMock {
         if (isRunning.compareAndSet(false, true)) {
             Config config = kernel.getConfig();
 
-            dbFactory = new LevelDBFactory(config.dataDir());
+            dbFactory = new LeveldbFactory(config.databaseDir());
             client = new PeerClient(config.p2pListenIp(), config.p2pListenPort(), kernel.getCoinbase());
 
             kernel.setBlockchain(new BlockchainImpl(config, dbFactory));
@@ -47,7 +47,7 @@ public class PeerServerMock {
             kernel.setPendingManager(new PendingManager(kernel));
             kernel.setNodeManager(new NodeManager(kernel));
 
-            kernel.setConsensus(new SemuxBFT(kernel));
+            kernel.setConsensus(new SemuxBft(kernel));
             kernel.setSyncManager(new SemuxSync(kernel));
 
             // start peer server
@@ -62,8 +62,8 @@ public class PeerServerMock {
 
             client.close();
 
-            for (DBName name : DBName.values()) {
-                KVDB db = dbFactory.getDB(name);
+            for (DatabaseName name : DatabaseName.values()) {
+                Database db = dbFactory.getDB(name);
                 db.close();
             }
         }

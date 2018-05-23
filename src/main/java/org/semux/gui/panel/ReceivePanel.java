@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -35,18 +35,19 @@ import javax.swing.table.TableRowSorter;
 
 import org.semux.Kernel;
 import org.semux.core.Wallet;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.gui.Action;
-import org.semux.gui.SemuxGUI;
+import org.semux.gui.SemuxGui;
 import org.semux.gui.SwingUtil;
-import org.semux.gui.exception.QRCodeException;
 import org.semux.gui.model.WalletAccount;
 import org.semux.gui.model.WalletModel;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.util.exception.UnreachableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.zxing.WriterException;
 
 public class ReceivePanel extends JPanel implements ActionListener {
 
@@ -54,24 +55,25 @@ public class ReceivePanel extends JPanel implements ActionListener {
 
     private static final Logger logger = LoggerFactory.getLogger(ReceivePanel.class);
 
-    private static String[] columnNames = { GUIMessages.get("Num"), GUIMessages.get("Address"),
-            GUIMessages.get("Available"), GUIMessages.get("Locked") };
+    private static final String[] columnNames = { GuiMessages.get("Num"), GuiMessages.get("Name"),
+            GuiMessages.get("Address"), GuiMessages.get("Available"), GuiMessages.get("Locked") };
 
     private static final int QR_SIZE = 200;
 
-    private transient WalletModel model;
+    private transient final SemuxGui gui;
+    private transient final WalletModel model;
+    private transient final Kernel kernel;
 
-    private transient Kernel kernel;
+    private final JTable table;
+    private final ReceiveTableModel tableModel;
+    private final JLabel qr;
 
-    private JTable table;
-    private ReceiveTableModel tableModel;
-    private JLabel qr;
-
-    public ReceivePanel(SemuxGUI gui) {
+    public ReceivePanel(SemuxGui gui) {
+        this.gui = gui;
         this.model = gui.getModel();
-        this.model.addListener(this);
-
         this.kernel = gui.getKernel();
+
+        this.model.addListener(this);
 
         tableModel = new ReceiveTableModel();
         table = new JTable(tableModel);
@@ -81,8 +83,8 @@ public class ReceivePanel extends JPanel implements ActionListener {
         table.setGridColor(Color.LIGHT_GRAY);
         table.setRowHeight(25);
         table.getTableHeader().setPreferredSize(new Dimension(10000, 24));
-        SwingUtil.setColumnWidths(table, 600, 0.05, 0.55, 0.2, 0.2);
-        SwingUtil.setColumnAlignments(table, false, false, true, true);
+        SwingUtil.setColumnWidths(table, 600, 0.05, 0.1, 0.55, 0.15, 0.15);
+        SwingUtil.setColumnAlignments(table, false, false, false, true, true);
 
         table.getSelectionModel().addListSelectionListener(
                 ev -> actionPerformed(new ActionEvent(ReceivePanel.this, 0, Action.SELECT_ACCOUNT.name())));
@@ -90,8 +92,8 @@ public class ReceivePanel extends JPanel implements ActionListener {
         // customized table sorter
         TableRowSorter<TableModel> sorter = new TableRowSorter<>(table.getModel());
         sorter.setComparator(0, SwingUtil.NUMBER_COMPARATOR);
-        sorter.setComparator(2, SwingUtil.VALUE_COMPARATOR);
         sorter.setComparator(3, SwingUtil.VALUE_COMPARATOR);
+        sorter.setComparator(4, SwingUtil.VALUE_COMPARATOR);
         table.setRowSorter(sorter);
 
         JScrollPane scrollPane = new JScrollPane(table);
@@ -102,16 +104,20 @@ public class ReceivePanel extends JPanel implements ActionListener {
         qr.setBorder(new LineBorder(Color.LIGHT_GRAY));
 
         JButton btnCopyAddress = SwingUtil
-                .createDefaultButton(GUIMessages.get("CopyAddress"), this, Action.COPY_ADDRESS);
+                .createDefaultButton(GuiMessages.get("CopyAddress"), this, Action.COPY_ADDRESS);
         btnCopyAddress.setName("btnCopyAddress");
 
         JButton buttonNewAccount = SwingUtil
-                .createDefaultButton(GUIMessages.get("NewAccount"), this, Action.NEW_ACCOUNT);
+                .createDefaultButton(GuiMessages.get("NewAccount"), this, Action.NEW_ACCOUNT);
         buttonNewAccount.setName("buttonNewAccount");
 
         JButton btnDeleteAddress = SwingUtil
-                .createDefaultButton(GUIMessages.get("DeleteAccount"), this, Action.DELETE_ACCOUNT);
+                .createDefaultButton(GuiMessages.get("DeleteAccount"), this, Action.DELETE_ACCOUNT);
         btnDeleteAddress.setName("btnDeleteAddress");
+
+        JButton btnAddressBook = SwingUtil
+                .createDefaultButton(GuiMessages.get("AddressBook"), this, Action.SHOW_ADDRESS_BOOK);
+        btnAddressBook.setName("btnAddressBook");
 
         // @formatter:off
         GroupLayout groupLayout = new GroupLayout(this);
@@ -121,33 +127,35 @@ public class ReceivePanel extends JPanel implements ActionListener {
                     .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 505, Short.MAX_VALUE)
                     .addGap(18)
                     .addGroup(groupLayout.createParallelGroup(Alignment.LEADING)
-                        .addComponent(buttonNewAccount, GroupLayout.PREFERRED_SIZE, 121, GroupLayout.PREFERRED_SIZE)
-                        .addComponent(btnCopyAddress)
-                        .addComponent(qr)
+                        .addComponent(btnAddressBook, GroupLayout.PREFERRED_SIZE, 121, GroupLayout.PREFERRED_SIZE)
                         .addComponent(btnDeleteAddress)
-                        ))
+                        .addComponent(buttonNewAccount)
+                        .addComponent(btnCopyAddress)
+                        .addComponent(qr)))
         );
         groupLayout.setVerticalGroup(
-            groupLayout.createParallelGroup(Alignment.LEADING)
-                .addGroup(groupLayout.createSequentialGroup()
-                    .addComponent(qr)
-                    .addGap(18)
-                    .addComponent(btnCopyAddress)
-                    .addGap(18)
-                    .addComponent(buttonNewAccount)
-                    .addGap(18)
-                    .addComponent(btnDeleteAddress)
-                    .addContainerGap(249, Short.MAX_VALUE))
-                .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 537, Short.MAX_VALUE)
+                groupLayout.createParallelGroup(Alignment.LEADING)
+                        .addGroup(groupLayout.createSequentialGroup()
+                                .addComponent(qr)
+                                .addGap(18)
+                                .addComponent(btnCopyAddress)
+                                .addGap(18)
+                                .addComponent(buttonNewAccount)
+                                .addGap(18)
+                                .addComponent(btnDeleteAddress)
+                                .addGap(18)
+                                .addComponent(btnAddressBook)
+                                .addContainerGap(249, Short.MAX_VALUE))
+                        .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 537, Short.MAX_VALUE)
         );
-        groupLayout.linkSize(SwingConstants.HORIZONTAL, btnCopyAddress, buttonNewAccount, btnDeleteAddress);
+        groupLayout.linkSize(SwingConstants.HORIZONTAL, btnCopyAddress, btnAddressBook, buttonNewAccount, btnDeleteAddress);
         setLayout(groupLayout);
         // @formatter:on
 
         refresh();
     }
 
-    class ReceiveTableModel extends AbstractTableModel {
+    private static class ReceiveTableModel extends AbstractTableModel {
 
         private static final long serialVersionUID = 1L;
 
@@ -193,11 +201,13 @@ public class ReceivePanel extends JPanel implements ActionListener {
             case 0:
                 return SwingUtil.formatNumber(row);
             case 1:
-                return Hex.PREF + acc.getKey().toAddressString();
+                return acc.getName().orElse("");
             case 2:
-                return SwingUtil.formatValue(acc.getAvailable());
+                return Hex.PREF + acc.getKey().toAddressString();
             case 3:
-                return SwingUtil.formatValue(acc.getLocked());
+                return SwingUtil.formatAmount(acc.getAvailable());
+            case 4:
+                return SwingUtil.formatAmount(acc.getLocked());
             default:
                 return null;
             }
@@ -223,6 +233,9 @@ public class ReceivePanel extends JPanel implements ActionListener {
             break;
         case DELETE_ACCOUNT:
             deleteAccount();
+            break;
+        case SHOW_ADDRESS_BOOK:
+            showAddressBook();
             break;
         default:
             throw new UnreachableException();
@@ -263,12 +276,13 @@ public class ReceivePanel extends JPanel implements ActionListener {
             WalletAccount acc = getSelectedAccount();
 
             if (acc != null) {
-                BufferedImage bi = SwingUtil.generateQR("semux://" + acc.getKey().toAddressString(), QR_SIZE, QR_SIZE);
+                BufferedImage bi = SwingUtil.createQrImage("semux://" + Hex.PREF + acc.getKey().toAddressString(),
+                        QR_SIZE, QR_SIZE);
                 qr.setIcon(new ImageIcon(bi));
             } else {
                 qr.setIcon(SwingUtil.emptyImage(QR_SIZE, QR_SIZE));
             }
-        } catch (QRCodeException exception) {
+        } catch (WriterException exception) {
             logger.error("Unable to generate QR code", exception);
         }
     }
@@ -279,31 +293,42 @@ public class ReceivePanel extends JPanel implements ActionListener {
     protected void copyAddress() {
         WalletAccount acc = getSelectedAccount();
         if (acc == null) {
-            JOptionPane.showMessageDialog(this, GUIMessages.get("SelectAccount"));
+            JOptionPane.showMessageDialog(this, GuiMessages.get("SelectAccount"));
         } else {
             String address = Hex.PREF + acc.getKey().toAddressString();
             StringSelection stringSelection = new StringSelection(address);
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             clipboard.setContents(stringSelection, null);
 
-            JOptionPane.showMessageDialog(this, GUIMessages.get("AddressCopied", address));
+            JOptionPane.showMessageDialog(this, GuiMessages.get("AddressCopied", address));
         }
+    }
+
+    /**
+     * Process the RENAME_ACCOUNT event
+     */
+    protected void showAddressBook() {
+        gui.getAddressBookDialog().setVisible(true);
     }
 
     /**
      * Processes the NEW_ACCOUNT event.
      */
     protected void newAccount() {
-        EdDSA key = new EdDSA();
+        Key key = new Key();
 
         Wallet wallet = kernel.getWallet();
         wallet.addAccount(key);
-        wallet.flush();
+        boolean added = wallet.flush();
 
-        // fire update event
-        model.fireUpdateEvent();
+        if (added) {
+            gui.updateModel();
 
-        JOptionPane.showMessageDialog(this, GUIMessages.get("NewAccountCreated"));
+            JOptionPane.showMessageDialog(this, GuiMessages.get("NewAccountCreated"));
+        } else {
+            wallet.removeAccount(key);
+            JOptionPane.showMessageDialog(this, GuiMessages.get("WalletSaveFailed"));
+        }
     }
 
     /**
@@ -312,21 +337,20 @@ public class ReceivePanel extends JPanel implements ActionListener {
     protected void deleteAccount() {
         WalletAccount acc = getSelectedAccount();
         if (acc == null) {
-            JOptionPane.showMessageDialog(this, GUIMessages.get("SelectAccount"));
+            JOptionPane.showMessageDialog(this, GuiMessages.get("SelectAccount"));
         } else {
             int ret = JOptionPane
-                    .showConfirmDialog(this, GUIMessages.get("ConfirmDeleteAccount"), GUIMessages.get("DeleteAccount"),
+                    .showConfirmDialog(this, GuiMessages.get("ConfirmDeleteAccount"), GuiMessages.get("DeleteAccount"),
                             JOptionPane.YES_NO_OPTION);
 
             if (ret == JOptionPane.OK_OPTION) {
                 Wallet wallet = kernel.getWallet();
-                wallet.deleteAccount(acc.getKey());
+                wallet.removeAccount(acc.getKey());
                 wallet.flush();
 
-                // fire update event
-                model.fireUpdateEvent();
+                gui.updateModel();
 
-                JOptionPane.showMessageDialog(this, GUIMessages.get("AccountDeleted"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("AccountDeleted"));
             }
         }
     }

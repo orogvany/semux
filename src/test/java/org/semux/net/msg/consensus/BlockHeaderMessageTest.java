@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -12,7 +12,8 @@ import java.util.Collections;
 
 import org.junit.Test;
 import org.semux.core.BlockHeader;
-import org.semux.crypto.EdDSA;
+import org.semux.crypto.Key;
+import org.semux.net.msg.MessageCode;
 import org.semux.util.Bytes;
 import org.semux.util.MerkleUtil;
 
@@ -21,7 +22,7 @@ public class BlockHeaderMessageTest {
     @Test
     public void testSerialization() {
         long number = 1;
-        byte[] coinbase = Bytes.random(EdDSA.ADDRESS_LEN);
+        byte[] coinbase = Bytes.random(Key.ADDRESS_LEN);
         byte[] prevHash = Bytes.random(32);
         long timestamp = System.currentTimeMillis();
         byte[] transactionsRoot = MerkleUtil.computeTransactionsRoot(Collections.emptyList());
@@ -33,8 +34,12 @@ public class BlockHeaderMessageTest {
                 stateRoot, data);
 
         BlockHeaderMessage m = new BlockHeaderMessage(header);
-        BlockHeaderMessage m2 = new BlockHeaderMessage(m.getEncoded());
+        assertThat(m.getCode()).isEqualTo(MessageCode.BLOCK_HEADER);
+        assertThat(m.getResponseMessageClass()).isNull();
 
+        BlockHeaderMessage m2 = new BlockHeaderMessage(m.getEncoded());
+        assertThat(m2.getCode()).isEqualTo(MessageCode.BLOCK_HEADER);
+        assertThat(m2.getResponseMessageClass()).isNull();
         assertThat(m2.getHeader()).isEqualToComparingFieldByField(header);
     }
 }

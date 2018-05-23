@@ -1,16 +1,19 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core.state;
 
+import static org.semux.core.Amount.sum;
+
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.semux.db.KVDB;
+import org.semux.core.Amount;
+import org.semux.db.Database;
 import org.semux.util.ByteArray;
 import org.semux.util.Bytes;
 
@@ -31,7 +34,7 @@ public class AccountStateImpl implements AccountState {
     protected static final byte TYPE_CODE = 1;
     protected static final byte TYPE_STORAGE = 2;
 
-    protected KVDB accountDB;
+    protected Database accountDB;
     protected AccountStateImpl prev;
 
     /**
@@ -44,7 +47,7 @@ public class AccountStateImpl implements AccountState {
      * 
      * @param accountDB
      */
-    public AccountStateImpl(KVDB accountDB) {
+    public AccountStateImpl(Database accountDB) {
         this.accountDB = accountDB;
     }
 
@@ -60,15 +63,16 @@ public class AccountStateImpl implements AccountState {
     @Override
     public Account getAccount(byte[] address) {
         ByteArray k = getKey(TYPE_ACCOUNT, address);
+        Amount noAmount = Amount.ZERO;
 
         if (updates.containsKey(k)) {
             byte[] v = updates.get(k);
-            return v == null ? new Account(address, 0, 0, 0) : Account.fromBytes(address, v);
+            return v == null ? new Account(address, noAmount, noAmount, 0) : Account.fromBytes(address, v);
         } else if (prev != null) {
             return prev.getAccount(address);
         } else {
             byte[] v = accountDB.get(k.getData());
-            return v == null ? new Account(address, 0, 0, 0) : Account.fromBytes(address, v);
+            return v == null ? new Account(address, noAmount, noAmount, 0) : Account.fromBytes(address, v);
         }
     }
 
@@ -82,20 +86,20 @@ public class AccountStateImpl implements AccountState {
     }
 
     @Override
-    public void adjustAvailable(byte[] address, long delta) {
+    public void adjustAvailable(byte[] address, Amount delta) {
         ByteArray k = getKey(TYPE_ACCOUNT, address);
 
         Account acc = getAccount(address);
-        acc.setAvailable(acc.getAvailable() + delta);
+        acc.setAvailable(sum(acc.getAvailable(), delta));
         updates.put(k, acc.toBytes());
     }
 
     @Override
-    public void adjustLocked(byte[] address, long delta) {
+    public void adjustLocked(byte[] address, Amount delta) {
         ByteArray k = getKey(TYPE_ACCOUNT, address);
 
         Account acc = getAccount(address);
-        acc.setLocked(acc.getLocked() + delta);
+        acc.setLocked(sum(acc.getLocked(), delta));
         updates.put(k, acc.toBytes());
     }
 

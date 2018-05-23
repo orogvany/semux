@@ -1,11 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertEquals;
@@ -15,11 +16,14 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
 
 import org.junit.After;
 import org.junit.Test;
 
 public class IOUtilTest {
+
+    private static final Charset CHARSET = UTF_8;
 
     private File f1 = new File("test1");
     private File f2 = new File("test2");
@@ -47,13 +51,13 @@ public class IOUtilTest {
 
     @Test
     public void testReadFileAsLines() throws IOException {
-        assertTrue(IOUtil.readFileAsLines(f1).isEmpty());
+        assertTrue(IOUtil.readFileAsLines(f1, CHARSET).isEmpty());
 
         IOUtil.writeToFile(Bytes.of("123\n456\n"), f1);
-        assertThat(IOUtil.readFileAsLines(f1), contains("123", "456"));
+        assertThat(IOUtil.readFileAsLines(f1, CHARSET), contains("123", "456"));
 
         IOUtil.writeToFile(Bytes.of("123\n456\n\n"), f1);
-        assertThat(IOUtil.readFileAsLines(f1), contains("123", "456", ""));
+        assertThat(IOUtil.readFileAsLines(f1, CHARSET), contains("123", "456", ""));
     }
 
     @Test

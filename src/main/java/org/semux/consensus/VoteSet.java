@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.semux.crypto.EdDSA.Signature;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key.Signature;
 import org.semux.util.ByteArray;
 
 /**
@@ -29,14 +29,14 @@ import org.semux.util.ByteArray;
  */
 public class VoteSet {
 
-    private Map<ByteArray, Map<String, Vote>> approvals;
-    private Map<String, Vote> rejections;
-    private VoteType type;
-    private long height;
-    private int view;
+    private final Map<ByteArray, Map<String, Vote>> approvals;
+    private final Map<String, Vote> rejections;
+    private final VoteType type;
+    private final long height;
+    private final int view;
 
-    private Set<String> validators;
-    private int twoThirds;
+    private final Set<String> validators;
+    private final int twoThirds;
 
     /**
      * Create a vote set.

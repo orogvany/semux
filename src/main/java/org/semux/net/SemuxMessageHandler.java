@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -38,10 +38,10 @@ public class SemuxMessageHandler extends MessageToMessageCodec<Frame, Message> {
     private final Cache<Integer, Pair<List<Frame>, AtomicInteger>> incompletePackets = Caffeine.newBuilder()
             .maximumSize(MAX_PACKETS).build();
 
-    private Config config;
+    private final Config config;
 
-    private MessageFactory messageFactory;
-    private AtomicInteger count;
+    private final MessageFactory messageFactory;
+    private final AtomicInteger count;
 
     public SemuxMessageHandler(Config config) {
         this.config = config;

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -7,14 +7,18 @@
 package org.semux.gui;
 
 import static org.junit.Assert.assertEquals;
+import static org.semux.core.Amount.Unit.NANO_SEM;
 
+import java.math.BigDecimal;
 import java.text.ParseException;
 import java.util.Locale;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.semux.core.Amount;
 
 public class SwingUtilTest {
 
@@ -23,19 +27,30 @@ public class SwingUtilTest {
 
     @Before
     public void setUp() {
-        Locale.setDefault(new Locale("us", "US"));
+        reset();
+    }
+
+    @After
+    public void tearDown() {
+        reset();
+    }
+
+    private void reset() {
+        Locale.setDefault(new Locale("en", "US"));
+        SwingUtil.setDefaultUnit("SEM");
+        SwingUtil.setDefaultFractionDigits(3);
     }
 
     @Test
     public void testFormatNumber() {
-        double x = 12345678.1234;
+        BigDecimal x = new BigDecimal("12345678.1234");
         assertEquals("12,345,678", SwingUtil.formatNumber(x, 0));
         assertEquals("12,345,678.12", SwingUtil.formatNumber(x, 2));
     }
 
     @Test
     public void testParseNumber() throws ParseException {
-        assertEquals(12345678.12, SwingUtil.parseNumber("12,345,678.12").doubleValue(), 10e-9);
+        assertEquals(new BigDecimal("12345678.12"), SwingUtil.parseNumber("12,345,678.12"));
     }
 
     @Test
@@ -52,9 +67,37 @@ public class SwingUtilTest {
 
     @Test
     public void testFormatAndEncodeValue() throws ParseException {
-        long x = 1_234_123_000_000L;
-        assertEquals("1,234.123 SEM", SwingUtil.formatValue(x));
-        assertEquals(x, SwingUtil.parseValue("1,234.123 SEM"));
+        Amount x = NANO_SEM.of(1_234_456_789_000L);
+        assertEquals("1,234.456 SEM", SwingUtil.formatAmount(x));
+        assertEquals(x, SwingUtil.parseAmount("1,234.456789"));
+        assertEquals(x, SwingUtil.parseAmount("1,234.456789 SEM"));
+        assertEquals(x, SwingUtil.parseAmount("1,234,456.789 mSEM"));
+        assertEquals(x, SwingUtil.parseAmount("1,234,456,789 μSEM"));
+    }
+
+    @Test
+    public void testFormatValueWithCustomUnit() {
+        Amount x = NANO_SEM.of(1_234_456_789_123L);
+        assertEquals("1,234.456 SEM", SwingUtil.formatAmount(x));
+        SwingUtil.setDefaultUnit("mSEM");
+        assertEquals("1,234,456.789 mSEM", SwingUtil.formatAmount(x));
+        SwingUtil.setDefaultUnit("μSEM");
+        assertEquals("1,234,456,789.123 μSEM", SwingUtil.formatAmount(x));
+    }
+
+    @Test
+    public void testFormatValueWithCustomFractionDigits() {
+        Amount x = NANO_SEM.of(1_234_456_789_123L);
+        SwingUtil.setDefaultUnit("SEM");
+        SwingUtil.setDefaultFractionDigits(9);
+        assertEquals("1,234.456789123 SEM", SwingUtil.formatAmount(x));
+    }
+
+    @Test
+    public void testFormatValueFull() {
+        Amount x = NANO_SEM.of(1_234_456_789_123L);
+        SwingUtil.setDefaultFractionDigits(0);
+        assertEquals("1,234.456789123 SEM", SwingUtil.formatAmountFull(x));
     }
 
     @Test

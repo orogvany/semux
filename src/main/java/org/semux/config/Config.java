@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -9,10 +9,15 @@ package org.semux.config;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.semux.Network;
+import org.semux.consensus.ValidatorActivatedFork;
+import org.semux.core.Amount;
 import org.semux.core.TransactionType;
+import org.semux.net.CapabilitySet;
 import org.semux.net.NodeManager.Node;
 import org.semux.net.msg.MessageCode;
 
@@ -24,6 +29,17 @@ public interface Config {
     // =========================
     // General
     // =========================
+
+    /**
+     * @return The config file itself.
+     */
+    File getFile();
+
+    /**
+     * @return The wallet password.
+     */
+    String walletPassword();
+
     /**
      * Returns the data directory.
      *
@@ -32,11 +48,32 @@ public interface Config {
     File dataDir();
 
     /**
-     * Returns the network id.
+     * Returns the database directory.
      *
      * @return
      */
-    byte networkId();
+    File databaseDir();
+
+    /**
+     * Returns the database directory.
+     *
+     * @return
+     */
+    File databaseDir(Network network);
+
+    /**
+     * Returns the config directory.
+     *
+     * @return
+     */
+    File configDir();
+
+    /**
+     * Returns the network.
+     *
+     * @return
+     */
+    Network network();
 
     /**
      * Returns the network id.
@@ -65,7 +102,7 @@ public interface Config {
      *
      * @return
      */
-    long minTransactionFee();
+    Amount minTransactionFee();
 
     /**
      * Returns the maximum allowed time drift between transaction timestamp and
@@ -80,14 +117,7 @@ public interface Config {
      *
      * @return
      */
-    long minDelegateBurnAmount();
-
-    /**
-     * Returns the block number before which this client needs to be upgraded.
-     *
-     * @return
-     */
-    long mandatoryUpgrade();
+    Amount minDelegateBurnAmount();
 
     /**
      * Returns the block reward for a specific block.
@@ -96,7 +126,7 @@ public interface Config {
      *            block number
      * @return the block reward
      */
-    long getBlockReward(long number);
+    Amount getBlockReward(long number);
 
     /**
      * Returns the validator update rate.
@@ -119,9 +149,10 @@ public interface Config {
      * @param validators
      * @param height
      * @param view
+     * @param uniformDist
      * @return
      */
-    String getPrimaryValidator(List<String> validators, long height, int view);
+    String getPrimaryValidator(List<String> validators, long height, int view, boolean uniformDist);
 
     /**
      * Returns the client id.
@@ -129,6 +160,13 @@ public interface Config {
      * @return
      */
     String getClientId();
+
+    /**
+     * Returns the set of capability.
+     *
+     * @return
+     */
+    CapabilitySet capabilitySet();
 
     // =========================
     // P2P
@@ -232,6 +270,20 @@ public interface Config {
      * @return
      */
     Set<MessageCode> netPrioritizedMessages();
+
+    /**
+     * Returns a list of DNS seeds for main network
+     *
+     * @return
+     */
+    List<String> netDnsSeedsMainNet();
+
+    /**
+     * Returns a list of DNS seeds for test network
+     *
+     * @return
+     */
+    List<String> netDnsSeedsTestNet();
 
     // =========================
     // API
@@ -361,4 +413,48 @@ public interface Config {
      * @return
      */
     Locale locale();
+
+    /**
+     * Returns the unit of displayed values.
+     *
+     * @return
+     */
+    String uiUnit();
+
+    /**
+     * Returns the fraction digits of displayed values.
+     *
+     * @return
+     */
+    int uiFractionDigits();
+
+    // =========================
+    // Forks
+    // =========================
+
+    /**
+     * Returns whether UNIFORM_DISTRIBUTION fork is enabled.
+     *
+     * @return
+     */
+    boolean forkUniformDistributionEnabled();
+
+    // =========================
+    // Checkpoints
+    // =========================
+
+    /**
+     * Get checkpoints.
+     *
+     * @return a map of blockchain checkpoints [block height] => [block hash]
+     */
+    Map<Long, byte[]> checkpoints();
+
+    /**
+     * Get fork activation checkpoints.
+     *
+     * @return a map of Validator-Activated fork activation checkpoints [fork] =>
+     *         [block height]
+     */
+    Map<ValidatorActivatedFork, Long> forkActivationCheckpoints();
 }

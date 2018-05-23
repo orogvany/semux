@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.semux.core.Amount.Unit.SEM;
 
 import org.apache.commons.lang3.RandomUtils;
 import org.assertj.swing.edt.GuiActionRunner;
@@ -31,11 +32,10 @@ import org.semux.core.PendingManager;
 import org.semux.core.Transaction;
 import org.semux.core.TransactionResult;
 import org.semux.core.TransactionType;
-import org.semux.core.Unit;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.gui.WalletModelRule;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.rules.KernelRule;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -45,7 +45,7 @@ public class SendPanelTest extends AssertJSwingJUnitTestCase {
     public KernelRule kernelRule1 = new KernelRule(51610, 51710);
 
     @Rule
-    public WalletModelRule walletRule = new WalletModelRule(1000, 1000);
+    public WalletModelRule walletRule = new WalletModelRule(SEM.of(1000), SEM.of(1000));
 
     @Mock
     PendingManager pendingManager;
@@ -57,13 +57,13 @@ public class SendPanelTest extends AssertJSwingJUnitTestCase {
 
     FrameFixture window;
 
-    EdDSA recipient;
+    Key recipient;
 
     KernelMock kernelMock;
 
     @Override
     protected void onSetUp() {
-        recipient = new EdDSA();
+        recipient = new Key();
     }
 
     @Override
@@ -76,12 +76,12 @@ public class SendPanelTest extends AssertJSwingJUnitTestCase {
         testSend(100, new PendingManager.ProcessTransactionResult(1));
 
         // 1. a confirmation dialog should be displayed
-        window.optionPane(Timeout.timeout(1000)).requireTitle(GUIMessages.get("ConfirmTransfer")).requireVisible()
+        window.optionPane(Timeout.timeout(1000)).requireTitle(GuiMessages.get("ConfirmTransfer")).requireVisible()
                 .yesButton().requireVisible().click();
 
         // 2. filled transaction should be sent to PendingManager once "Yes" button is
         // clicked
-        window.optionPane(Timeout.timeout(1000)).requireTitle(GUIMessages.get("SuccessDialogTitle")).requireVisible()
+        window.optionPane(Timeout.timeout(1000)).requireTitle(GuiMessages.get("SuccessDialogTitle")).requireVisible()
                 .okButton().requireVisible().click();
         verify(pendingManager).addTransactionSync(transactionArgumentCaptor.capture());
 
@@ -89,20 +89,20 @@ public class SendPanelTest extends AssertJSwingJUnitTestCase {
         Transaction tx = transactionArgumentCaptor.getValue();
         assertEquals(TransactionType.TRANSFER, tx.getType());
         assertArrayEquals(recipient.toAddress(), tx.getTo());
-        assertEquals(100 * Unit.SEM, tx.getValue());
+        assertEquals(SEM.of(100), tx.getValue());
         assertEquals(kernelMock.getConfig().minTransactionFee(), tx.getFee());
     }
 
     @Test
     public void testSendFailure() {
         testSend(10000, new PendingManager.ProcessTransactionResult(0, TransactionResult.Error.INSUFFICIENT_AVAILABLE));
-        window.optionPane(Timeout.timeout(1000)).requireTitle(GUIMessages.get("ErrorDialogTitle"));
+        window.optionPane(Timeout.timeout(1000)).requireTitle(GuiMessages.get("ErrorDialogTitle"));
     }
 
     @Test
     public void testSendFailureInvalidInput() {
         testSend(null, null);
-        window.optionPane(Timeout.timeout(1000)).requireVisible().requireMessage(GUIMessages.get("EnterValidValue"));
+        window.optionPane(Timeout.timeout(1000)).requireVisible().requireMessage(GuiMessages.get("EnterValidValue"));
     }
 
     private void testSend(Integer toSendSEM, PendingManager.ProcessTransactionResult mockResult) {
@@ -119,8 +119,7 @@ public class SendPanelTest extends AssertJSwingJUnitTestCase {
         window.show().requireVisible().moveToFront();
 
         // fill form
-        window.textBox("txtTo").requireVisible().requireEditable().setText(Hex.encode0x(recipient.toAddress()))
-                .requireText(Hex.encode0x(recipient.toAddress()));
+        window.comboBox("selectTo").requireVisible().requireEditable().enterText(Hex.encode0x(recipient.toAddress()));
         window.textBox("txtAmount").requireVisible().requireEditable()
                 .setText(toSendSEM == null ? "" : String.valueOf(toSendSEM))
                 .requireText(toSendSEM == null ? "" : String.valueOf(toSendSEM));

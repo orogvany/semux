@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -30,8 +30,8 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.semux.core.Wallet;
-import org.semux.crypto.EdDSA;
-import org.semux.message.GUIMessages;
+import org.semux.crypto.Key;
+import org.semux.message.GuiMessages;
 import org.semux.util.SystemUtil;
 import org.semux.util.exception.UnreachableException;
 import org.slf4j.Logger;
@@ -43,13 +43,14 @@ public class WelcomeFrame extends JFrame implements ActionListener {
 
     private static final Logger logger = LoggerFactory.getLogger(WelcomeFrame.class);
 
-    private JPasswordField txtPassword;
-    private JPasswordField txtPasswordRepeat;
-    private JLabel lblPasswordRepeat;
-    private JRadioButton btnCreate;
-    private JRadioButton btnRecover;
+    private final JPasswordField txtPassword;
+    private final JPasswordField txtPasswordRepeat;
+    private final JLabel lblPasswordRepeat;
+    private final JRadioButton btnCreate;
+    private final JRadioButton btnRecover;
+    private final JButton btnNext;
 
-    private transient Wallet wallet;
+    private final transient Wallet wallet;
 
     private transient File backupFile = null;
 
@@ -59,7 +60,7 @@ public class WelcomeFrame extends JFrame implements ActionListener {
         this.wallet = wallet;
 
         // setup frame properties
-        this.setTitle(GUIMessages.get("SemuxWallet"));
+        this.setTitle(GuiMessages.get("SemuxWallet"));
         this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         this.setIconImage(SwingUtil.loadImage("logo", 128, 128).getImage());
         this.setMinimumSize(new Dimension(600, 400));
@@ -67,10 +68,10 @@ public class WelcomeFrame extends JFrame implements ActionListener {
 
         // create banner
         JLabel banner = new JLabel("");
-        banner.setIcon(SwingUtil.loadImage("banner", 125, 200));
+        banner.setIcon(SwingUtil.loadImage("banner", 125, 160));
 
         // create description
-        JLabel description = new JLabel(GUIMessages.get("WelcomeDescriptionHtml"));
+        JLabel description = new JLabel(GuiMessages.get("WelcomeDescriptionHtml"));
 
         // create select button group
         Color color = new Color(220, 220, 220);
@@ -80,7 +81,7 @@ public class WelcomeFrame extends JFrame implements ActionListener {
         panel.setBackground(color);
         ButtonGroup buttonGroup = new ButtonGroup();
 
-        btnCreate = new JRadioButton(GUIMessages.get("CreateNewAccount"));
+        btnCreate = new JRadioButton(GuiMessages.get("CreateNewAccount"));
         btnCreate.setName("btnCreate");
         btnCreate.setSelected(true);
         btnCreate.setBackground(color);
@@ -89,7 +90,7 @@ public class WelcomeFrame extends JFrame implements ActionListener {
         buttonGroup.add(btnCreate);
         panel.add(btnCreate);
 
-        btnRecover = new JRadioButton(GUIMessages.get("ImportAccountsFromBackupFile"));
+        btnRecover = new JRadioButton(GuiMessages.get("ImportAccountsFromBackupFile"));
         btnRecover.setName("btnRecover");
         btnRecover.setBackground(color);
         btnRecover.setActionCommand(Action.RECOVER_ACCOUNTS.name());
@@ -98,20 +99,21 @@ public class WelcomeFrame extends JFrame implements ActionListener {
         panel.add(btnRecover);
 
         // create buttons
-        JButton btnCancel = SwingUtil.createDefaultButton(GUIMessages.get("Cancel"), this, Action.CANCEL);
+        JButton btnCancel = SwingUtil.createDefaultButton(GuiMessages.get("Cancel"), this, Action.CANCEL);
         btnCancel.setName("btnCancel");
 
-        JButton btnNext = SwingUtil.createDefaultButton(GUIMessages.get("Next"), this, Action.OK);
+        btnNext = SwingUtil.createDefaultButton(GuiMessages.get("Next"), this, Action.OK);
         btnNext.setName("btnNext");
         btnNext.setSelected(true);
+        btnNext.setMultiClickThreshhold(1000);
 
-        JLabel lblPassword = new JLabel(GUIMessages.get("Password") + ":");
+        JLabel lblPassword = new JLabel(GuiMessages.get("Password") + ":");
         txtPassword = new JPasswordField();
         txtPassword.setName("txtPassword");
         txtPassword.setActionCommand(Action.OK.name());
         txtPassword.addActionListener(this);
 
-        lblPasswordRepeat = new JLabel(GUIMessages.get("RepeatPassword") + ":");
+        lblPasswordRepeat = new JLabel(GuiMessages.get("RepeatPassword") + ":");
         txtPasswordRepeat = new JPasswordField();
         txtPasswordRepeat.setName("txtPasswordRepeat");
         txtPasswordRepeat.setActionCommand(Action.OK.name());
@@ -187,10 +189,11 @@ public class WelcomeFrame extends JFrame implements ActionListener {
             recoverAccounts();
             break;
         case OK:
+            btnNext.setEnabled(false);
             ok();
             break;
         case CANCEL:
-            SystemUtil.exitAsync(0);
+            SystemUtil.exitAsync(SystemUtil.Code.OK);
             break;
         default:
             throw new UnreachableException();
@@ -207,7 +210,7 @@ public class WelcomeFrame extends JFrame implements ActionListener {
                     wait();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    SystemUtil.exitAsync(0);
+                    SystemUtil.exitAsync(SystemUtil.Code.OK);
                 }
             }
         }
@@ -236,7 +239,7 @@ public class WelcomeFrame extends JFrame implements ActionListener {
     protected void recoverAccounts() {
         JFileChooser chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-        chooser.setFileFilter(new FileNameExtensionFilter(GUIMessages.get("WalletBinaryFormat"), "data"));
+        chooser.setFileFilter(new FileNameExtensionFilter(GuiMessages.get("WalletBinaryFormat"), "data"));
         int ret = chooser.showOpenDialog(this);
         if (ret == JFileChooser.APPROVE_OPTION) {
             selectRecover(chooser.getSelectedFile());
@@ -252,38 +255,44 @@ public class WelcomeFrame extends JFrame implements ActionListener {
         String password = new String(txtPassword.getPassword());
         String passwordRepeat = new String(txtPasswordRepeat.getPassword());
         if (isCreate() && !password.equals(passwordRepeat)) {
-            JOptionPane.showMessageDialog(this, GUIMessages.get("RepeatPasswordError"));
+            JOptionPane.showMessageDialog(this, GuiMessages.get("RepeatPasswordError"));
             return;
         }
 
         // paranoid check
         if (wallet.exists()) {
             logger.error("Wallet already exists!");
-            SystemUtil.exitAsync(1);
+            SystemUtil.exitAsync(SystemUtil.Code.WALLET_ALREADY_EXISTS);
         } else if (wallet.isUnlocked()) {
             logger.error("Wallet already unlocked!");
-            SystemUtil.exitAsync(1);
+            SystemUtil.exitAsync(SystemUtil.Code.WALLET_ALREADY_UNLOCKED);
         }
 
         if (isCreate()) {
-            wallet.unlock(password);
-            wallet.addAccount(new EdDSA());
-            wallet.flush();
-
-            done();
+            if (wallet.unlock(password)
+                    && wallet.addAccount(new Key())
+                    && wallet.flush()) {
+                done();
+            } else {
+                JOptionPane.showMessageDialog(this, GuiMessages.get("WalletSaveFailed"));
+                SystemUtil.exitAsync(SystemUtil.Code.FAILED_TO_WRITE_WALLET_FILE);
+            }
         } else {
             Wallet w = new Wallet(backupFile);
 
             if (!w.unlock(password)) {
-                JOptionPane.showMessageDialog(this, GUIMessages.get("UnlockFailed"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("UnlockFailed"));
             } else if (w.size() == 0) {
-                JOptionPane.showMessageDialog(this, GUIMessages.get("NoAccountFound"));
+                JOptionPane.showMessageDialog(this, GuiMessages.get("NoAccountFound"));
             } else {
-                wallet.unlock(password);
-                wallet.addAccounts(w.getAccounts());
-                wallet.flush();
-
-                done();
+                if (wallet.unlock(password)
+                        && wallet.addWallet(w) > 0
+                        && wallet.flush()) {
+                    done();
+                } else {
+                    JOptionPane.showMessageDialog(this, GuiMessages.get("WalletSaveFailed"));
+                    SystemUtil.exitAsync(SystemUtil.Code.FAILED_TO_WRITE_WALLET_FILE);
+                }
             }
         }
     }

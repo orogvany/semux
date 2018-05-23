@@ -1,10 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core.state;
+
+import org.semux.core.Amount;
 
 public interface AccountState {
 
@@ -29,7 +31,7 @@ public interface AccountState {
      * @param address
      * @param delta
      */
-    void adjustAvailable(byte[] address, long delta);
+    void adjustAvailable(byte[] address, Amount delta);
 
     /**
      * Adjusts the locked balance of an account.
@@ -37,7 +39,7 @@ public interface AccountState {
      * @param address
      * @param delta
      */
-    void adjustLocked(byte[] address, long delta);
+    void adjustLocked(byte[] address, Amount delta);
 
     /**
      * Returns the code of an account.

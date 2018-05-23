@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -19,18 +19,22 @@ import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.semux.net.filter.exception.ParseException;
+import org.semux.net.filter.exception.IpFilterJsonParseException;
 
 import io.netty.handler.ipfilter.IpFilterRule;
 import io.netty.handler.ipfilter.IpFilterRuleType;
 
 @RunWith(Parameterized.class)
-public class SemuxIpFilterLoaderTest {
+public class SemuxIpFilterLoaderTest extends SemuxIpFilterTestBase {
 
     @Rule
     public final ExpectedException expectedException = ExpectedException.none();
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Parameterized.Parameters
     public static Collection<Object[]> data() throws UnknownHostException {
@@ -44,14 +48,14 @@ public class SemuxIpFilterLoaderTest {
                                 new FilterRule("192.168.0.0/16", IpFilterRuleType.ACCEPT),
                                 new FilterRule("0.0.0.0/0", IpFilterRuleType.REJECT)),
                         null },
-                { getFile("exception_empty_object.json"), null, ParseException.class },
-                { getFile("exception_typo_in_rules1.json"), null, ParseException.class },
-                { getFile("exception_typo_in_rules2.json"), null, ParseException.class },
-                { getFile("exception_typo_in_rules3.json"), null, ParseException.class },
-                { getFile("exception_typo_in_rules4.json"), null, ParseException.class },
-                { getFile("exception_type_cast1.json"), null, ParseException.class },
-                { getFile("exception_type_cast2.json"), null, ParseException.class },
-                { getFile("exception_type_cast3.json"), null, ParseException.class }, });
+                { getFile("exception_empty_object.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_typo_in_rules1.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_typo_in_rules2.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_typo_in_rules3.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_typo_in_rules4.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_type_cast1.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_type_cast2.json"), null, IpFilterJsonParseException.class },
+                { getFile("exception_type_cast3.json"), null, IpFilterJsonParseException.class }, });
     }
 
     File jsonFile;
@@ -64,10 +68,6 @@ public class SemuxIpFilterLoaderTest {
         this.jsonFile = jsonFile;
         this.rules = rules;
         this.exception = exception;
-    }
-
-    private static File getFile(String fileName) {
-        return new File(SemuxIpFilterLoaderTest.class.getResource("/ipfilter/" + fileName).getFile());
     }
 
     @Test

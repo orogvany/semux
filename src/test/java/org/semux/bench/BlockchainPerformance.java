@@ -1,25 +1,33 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.bench;
 
+import static org.semux.core.Amount.Unit.NANO_SEM;
+
 import java.util.ArrayList;
 import java.util.List;
 
+import org.semux.Network;
+import org.semux.TestUtils;
 import org.semux.config.Config;
 import org.semux.config.Constants;
-import org.semux.config.DevNetConfig;
+import org.semux.config.DevnetConfig;
+import org.semux.core.Amount;
 import org.semux.core.Block;
 import org.semux.core.BlockHeader;
+import org.semux.core.Blockchain;
+import org.semux.core.BlockchainImpl;
 import org.semux.core.Genesis;
 import org.semux.core.Transaction;
 import org.semux.core.TransactionResult;
 import org.semux.core.TransactionType;
-import org.semux.crypto.EdDSA;
-import org.semux.crypto.EdDSA.Signature;
+import org.semux.crypto.Key;
+import org.semux.crypto.Key.Signature;
+import org.semux.rules.TemporaryDatabaseRule;
 import org.semux.util.Bytes;
 import org.semux.util.MerkleUtil;
 import org.slf4j.Logger;
@@ -28,8 +36,8 @@ import org.slf4j.LoggerFactory;
 public class BlockchainPerformance {
     private static final Logger logger = LoggerFactory.getLogger(BlockchainPerformance.class);
 
-    private static Config config = new DevNetConfig(Constants.DEFAULT_DATA_DIR);
-    private static EdDSA key = new EdDSA();
+    private static Config config = new DevnetConfig(Constants.DEFAULT_DATA_DIR);
+    private static Key key = new Key();
 
     public static Block testBlockCreation() {
         long t1 = System.nanoTime();
@@ -39,15 +47,15 @@ public class BlockchainPerformance {
 
         int total = 0;
         for (int i = 0;; i++) {
-            byte networkId = config.networkId();
+            Network network = config.network();
             TransactionType type = TransactionType.TRANSFER;
             byte[] to = Bytes.random(20);
-            long value = 1;
-            long fee = config.minTransactionFee();
+            Amount value = NANO_SEM.of(1);
+            Amount fee = config.minTransactionFee();
             long nonce = 1 + i;
             long timestamp = System.currentTimeMillis();
             byte[] data = Bytes.EMPTY_BYTES;
-            Transaction tx = new Transaction(networkId, type, to, value, fee, nonce, timestamp, data).sign(key);
+            Transaction tx = new Transaction(network, type, to, value, fee, nonce, timestamp, data).sign(key);
 
             if (total + tx.size() > config.maxBlockTransactionsSize()) {
                 break;
@@ -73,7 +81,7 @@ public class BlockchainPerformance {
 
         List<Signature> votes = new ArrayList<>();
         for (int i = 0; i < config.getNumberOfValidators(1000000L); i++) {
-            votes.add(new EdDSA().sign(Bytes.EMPTY_BYTES));
+            votes.add(new Key().sign(Bytes.EMPTY_BYTES));
         }
         block.setView(1);
         block.setVotes(votes);
@@ -90,11 +98,11 @@ public class BlockchainPerformance {
     }
 
     public static void testBlockValidation(Block block) {
-        Genesis gen = Genesis.load(Constants.NETWORKS[Constants.DEVNET_ID]);
+        Genesis gen = Genesis.load(Network.DEVNET);
 
         long t1 = System.nanoTime();
         Block.validateHeader(gen.getHeader(), block.getHeader());
-        Block.validateTransactions(gen.getHeader(), block.getTransactions(), config.networkId());
+        Block.validateTransactions(gen.getHeader(), block.getTransactions(), config.network());
         Block.validateResults(gen.getHeader(), block.getResults());
         // block votes validation skipped
         long t2 = System.nanoTime();
@@ -103,33 +111,53 @@ public class BlockchainPerformance {
     }
 
     public static void testTransactionValidation() {
-        EdDSA key = new EdDSA();
+        Key key = new Key();
 
-        byte networkId = config.networkId();
+        Network network = config.network();
         TransactionType type = TransactionType.TRANSFER;
         byte[] to = Bytes.random(20);
-        long value = 1;
-        long fee = config.minTransactionFee();
+        Amount value = NANO_SEM.of(1);
+        Amount fee = config.minTransactionFee();
         long nonce = 1;
         long timestamp = System.currentTimeMillis();
         byte[] data = {};
-        Transaction tx = new Transaction(networkId, type, to, value, fee, nonce, timestamp, data);
+        Transaction tx = new Transaction(network, type, to, value, fee, nonce, timestamp, data);
         tx.sign(key);
 
         int repeat = 1000;
         long t1 = System.nanoTime();
         for (int i = 0; i < repeat; i++) {
-            tx.validate(networkId);
+            tx.validate(network);
         }
         long t2 = System.nanoTime();
         logger.info("Perf_transaction_size: {} B", tx.toBytes().length);
         logger.info("Perf_transaction_validation: {} μs/time", (t2 - t1) / repeat / 1_000);
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void testAddBlock() throws Throwable {
+        final int repeat = 10000;
+        Block[] blocks = new Block[repeat];
+        for (int i = 0; i < repeat; i++) {
+            blocks[i] = TestUtils.createEmptyBlock(i);
+        }
+
+        TemporaryDatabaseRule temporaryDbRule = new TemporaryDatabaseRule();
+        temporaryDbRule.before();
+        Blockchain blockchain = new BlockchainImpl(config, temporaryDbRule);
+        long t1 = System.currentTimeMillis();
+        for (int i = 0; i < repeat; i++) {
+            blockchain.addBlock(blocks[i]);
+        }
+        long t2 = System.currentTimeMillis();
+        temporaryDbRule.after();
+        logger.info("Perf_addBlock: {} ms / {} blocks", t2 - t1, repeat);
+    }
+
+    public static void main(String[] args) throws Throwable {
         Block block = testBlockCreation();
         testBlockValidation(block);
         testTransactionValidation();
+        testAddBlock();
 
         System.exit(0);
     }

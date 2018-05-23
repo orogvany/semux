@@ -1,20 +1,25 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core;
 
+import static org.semux.util.Bytes.EMPTY_ADDRESS;
+
 import java.util.Arrays;
 
-import org.semux.crypto.EdDSA;
-import org.semux.crypto.EdDSA.Signature;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.semux.Network;
+import org.semux.config.Constants;
 import org.semux.crypto.Hash;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
+import org.semux.crypto.Key.Signature;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
-import org.xbill.DNS.Address;
 
 public class Transaction {
 
@@ -24,9 +29,9 @@ public class Transaction {
 
     private final byte[] to;
 
-    private final long value;
+    private final Amount value;
 
-    private final long fee;
+    private final Amount fee;
 
     private final long nonce;
 
@@ -36,13 +41,14 @@ public class Transaction {
 
     private final byte[] encoded;
 
-    private final byte[] hash; // not serialized
+    private final byte[] hash;
+
     private Signature signature;
 
     /**
      * Create a new transaction.
      *
-     * @param networkId
+     * @param network
      * @param type
      * @param to
      * @param value
@@ -51,9 +57,9 @@ public class Transaction {
      * @param timestamp
      * @param data
      */
-    public Transaction(byte networkId, TransactionType type, byte[] to, long value, long fee, long nonce,
+    public Transaction(Network network, TransactionType type, byte[] to, Amount value, Amount fee, long nonce,
             long timestamp, byte[] data) {
-        this.networkId = networkId;
+        this.networkId = network.id();
         this.type = type;
         this.to = to;
         this.value = value;
@@ -66,8 +72,8 @@ public class Transaction {
         enc.writeByte(networkId);
         enc.writeByte(type.toByte());
         enc.writeBytes(to);
-        enc.writeLong(value);
-        enc.writeLong(fee);
+        enc.writeAmount(value);
+        enc.writeAmount(fee);
         enc.writeLong(nonce);
         enc.writeLong(timestamp);
         enc.writeBytes(data);
@@ -76,24 +82,24 @@ public class Transaction {
     }
 
     /**
-     * Create a transaction from raw bytes
+     * Create a signed transaction from raw bytes
      *
      * @param hash
      * @param encoded
      * @param signature
      */
-    public Transaction(byte[] hash, byte[] encoded, byte[] signature) {
+    private Transaction(byte[] hash, byte[] encoded, byte[] signature) {
         this.hash = hash;
 
-        SimpleDecoder dec = new SimpleDecoder(encoded);
-        this.networkId = dec.readByte();
-        this.type = TransactionType.of(dec.readByte());
-        this.to = dec.readBytes();
-        this.value = dec.readLong();
-        this.fee = dec.readLong();
-        this.nonce = dec.readLong();
-        this.timestamp = dec.readLong();
-        this.data = dec.readBytes();
+        Transaction decodedTx = fromEncoded(encoded);
+        this.networkId = decodedTx.networkId;
+        this.type = decodedTx.type;
+        this.to = decodedTx.to;
+        this.value = decodedTx.value;
+        this.fee = decodedTx.fee;
+        this.nonce = decodedTx.nonce;
+        this.timestamp = decodedTx.timestamp;
+        this.data = decodedTx.data;
 
         this.encoded = encoded;
         this.signature = Signature.fromBytes(signature);
@@ -105,7 +111,7 @@ public class Transaction {
      * @param key
      * @return
      */
-    public Transaction sign(EdDSA key) {
+    public Transaction sign(Key key) {
         this.signature = key.sign(this.hash);
         return this;
     }
@@ -122,21 +128,28 @@ public class Transaction {
      * @param network
      * @return true if success, otherwise false
      */
-    public boolean validate(byte network) {
+    public boolean validate(Network network) {
         return hash != null && hash.length == Hash.HASH_LEN
-                && networkId == network
+                && networkId == network.id()
                 && type != null
-                && to != null && to.length == EdDSA.ADDRESS_LEN
-                && value >= 0
-                && fee >= 0
+                && to != null && to.length == Key.ADDRESS_LEN
+                && value.gte0()
+                && fee.gte0()
                 && nonce >= 0
                 && timestamp > 0
                 && data != null
                 && encoded != null
-                && signature != null
+                && signature != null && !Arrays.equals(signature.getAddress(), EMPTY_ADDRESS)
 
                 && Arrays.equals(Hash.h256(encoded), hash)
-                && EdDSA.verify(hash, signature);
+                && Key.verify(hash, signature)
+
+                // The coinbase key is publicly available. People can use it for transactions.
+                // It won't introduce any fundamental loss to the system but could potentially
+                // cause confusion for block explorer, and thus are prohibited.
+                && (type == TransactionType.COINBASE
+                        || (!Arrays.equals(signature.getAddress(), Constants.COINBASE_ADDRESS) &&
+                                !Arrays.equals(to, Constants.COINBASE_ADDRESS)));
     }
 
     /**
@@ -169,7 +182,7 @@ public class Transaction {
     /**
      * Parses the from address from signature.
      *
-     * @return an {@link Address} if the signature is success, otherwise null
+     * @return an address if the signature is valid, otherwise null
      */
     public byte[] getFrom() {
         return (signature == null) ? null : signature.getAddress();
@@ -189,7 +202,7 @@ public class Transaction {
      *
      * @return
      */
-    public long getValue() {
+    public Amount getValue() {
         return value;
     }
 
@@ -198,7 +211,7 @@ public class Transaction {
      *
      * @return
      */
-    public long getFee() {
+    public Amount getFee() {
         return fee;
     }
 
@@ -227,6 +240,38 @@ public class Transaction {
      */
     public byte[] getData() {
         return data;
+    }
+
+    public byte[] getEncoded() {
+        return encoded;
+    }
+
+    /**
+     * Decodes an byte-encoded transaction that is not yet signed by a private key.
+     *
+     * @param encoded
+     *            the bytes of encoded transaction
+     * @return the decoded transaction
+     */
+    public static Transaction fromEncoded(byte[] encoded) {
+        SimpleDecoder decoder = new SimpleDecoder(encoded);
+        byte networkId = decoder.readByte();
+        byte type = decoder.readByte();
+        byte[] to = decoder.readBytes();
+        Amount value = decoder.readAmount();
+        Amount fee = decoder.readAmount();
+        Long nonce = decoder.readLong();
+        Long timestamp = decoder.readLong();
+        byte[] data = decoder.readBytes();
+        return new Transaction(
+                Network.of(networkId),
+                TransactionType.of(type),
+                to,
+                value,
+                fee,
+                nonce,
+                timestamp,
+                data);
     }
 
     /**
@@ -281,5 +326,31 @@ public class Transaction {
         return "Transaction [type=" + type + ", from=" + Hex.encode(getFrom()) + ", to=" + Hex.encode(to) + ", value="
                 + value + ", fee=" + fee + ", nonce=" + nonce + ", timestamp=" + timestamp + ", data="
                 + Hex.encode(data) + ", hash=" + Hex.encode(hash) + "]";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+
+        if (o == null || getClass() != o.getClass())
+            return false;
+
+        Transaction that = (Transaction) o;
+
+        return new EqualsBuilder()
+                .append(encoded, that.encoded)
+                .append(hash, that.hash)
+                .append(signature, that.signature)
+                .isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder(17, 37)
+                .append(encoded)
+                .append(hash)
+                .append(signature)
+                .toHashCode();
     }
 }

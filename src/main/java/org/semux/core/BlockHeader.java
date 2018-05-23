@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -10,36 +10,34 @@ import static org.semux.crypto.Hash.HASH_LEN;
 
 import java.util.Arrays;
 
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hash;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.util.Bytes;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
 
 public class BlockHeader {
 
-    public static final int MAX_DATA_SIZE = 32;
+    private final byte[] hash;
 
-    private byte[] hash;
+    private final long number;
 
-    private long number;
+    private final byte[] coinbase;
 
-    private byte[] coinbase;
+    private final byte[] parentHash;
 
-    private byte[] parentHash;
+    private final long timestamp;
 
-    private long timestamp;
+    private final byte[] transactionsRoot;
 
-    private byte[] transactionsRoot;
+    private final byte[] resultsRoot;
 
-    private byte[] resultsRoot;
+    private final byte[] stateRoot;
 
-    private byte[] stateRoot;
+    private final byte[] data;
 
-    private byte[] data;
-
-    private byte[] encoded;
+    private final byte[] encoded;
 
     /**
      * Creates an instance of block header.
@@ -106,13 +104,13 @@ public class BlockHeader {
     public boolean validate() {
         return hash != null && hash.length == HASH_LEN
                 && number >= 0
-                && coinbase != null && coinbase.length == EdDSA.ADDRESS_LEN
+                && coinbase != null && coinbase.length == Key.ADDRESS_LEN
                 && parentHash != null && parentHash.length == HASH_LEN
                 && timestamp >= 0
                 && transactionsRoot != null && transactionsRoot.length == HASH_LEN
                 && resultsRoot != null && resultsRoot.length == HASH_LEN
                 && stateRoot != null && Arrays.equals(Bytes.EMPTY_HASH, stateRoot) // RESERVED FOR VM
-                && data != null && data.length <= MAX_DATA_SIZE
+                && data != null && data.length <= BlockHeaderData.MAX_SIZE
                 && encoded != null
                 && Arrays.equals(Hash.h256(encoded), hash);
     }
@@ -151,6 +149,10 @@ public class BlockHeader {
 
     public byte[] getData() {
         return data;
+    }
+
+    public BlockHeaderData getDecodedData() {
+        return BlockHeaderData.fromBytes(data);
     }
 
     public byte[] toBytes() {

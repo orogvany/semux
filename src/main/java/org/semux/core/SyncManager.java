@@ -1,10 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.core;
+
+import java.time.Duration;
 
 import org.semux.net.Channel;
 import org.semux.net.msg.Message;
@@ -54,6 +56,11 @@ public interface SyncManager {
     interface Progress {
 
         /**
+         * @return the starting height of this sync process.
+         */
+        long getStartingHeight();
+
+        /**
          * @return the current height of sync process.
          */
         long getCurrentHeight();
@@ -62,5 +69,10 @@ public interface SyncManager {
          * @return the target height of sync process.
          */
         long getTargetHeight();
+
+        /**
+         * @return the estimated time to complete this sync process. 30 days at maximum.
+         */
+        Duration getSyncEstimation();
     }
 }

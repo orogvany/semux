@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -12,6 +12,8 @@ import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
@@ -20,8 +22,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import org.semux.Kernel;
+import org.semux.Network;
 import org.semux.config.Config;
 import org.semux.config.Constants;
 import org.slf4j.Logger;
@@ -35,7 +39,7 @@ public class NodeManager {
     private static final Logger logger = LoggerFactory.getLogger(NodeManager.class);
 
     private static final ThreadFactory factory = new ThreadFactory() {
-        private AtomicInteger cnt = new AtomicInteger(0);
+        private final AtomicInteger cnt = new AtomicInteger(0);
 
         @Override
         public Thread newThread(Runnable r) {
@@ -43,24 +47,21 @@ public class NodeManager {
         }
     };
 
-    private static final String DNS_SEED_MAINNET = "mainnet.semux.org";
-    private static final String DNS_SEED_TESTNET = "testnet.semux.org";
-
     private static final long MAX_QUEUE_SIZE = 1024;
     private static final int LRU_CACHE_SIZE = 1024;
     private static final long RECONNECT_WAIT = 2L * 60L * 1000L;
 
-    private Kernel kernel;
-    private Config config;
+    private final Kernel kernel;
+    private final Config config;
 
-    private ChannelManager channelMgr;
-    private PeerClient client;
+    private final ChannelManager channelMgr;
+    private final PeerClient client;
 
-    private Deque<Node> deque = new ConcurrentLinkedDeque<>();
+    private final Deque<Node> deque = new ConcurrentLinkedDeque<>();
 
-    private Cache<Node, Long> lastConnect = Caffeine.newBuilder().maximumSize(LRU_CACHE_SIZE).build();
+    private final Cache<Node, Long> lastConnect = Caffeine.newBuilder().maximumSize(LRU_CACHE_SIZE).build();
 
-    private ScheduledExecutorService exec;
+    private final ScheduledExecutorService exec;
     private ScheduledFuture<?> connectFuture;
     private ScheduledFuture<?> fetchFuture;
 
@@ -90,7 +91,7 @@ public class NodeManager {
 
             // every 0.5 seconds
             connectFuture = exec.scheduleAtFixedRate(this::doConnect, 100, 500, TimeUnit.MILLISECONDS);
-            // every 120 seconds, delayed by 10 seconds (public IP lookup)
+            // every 100 seconds, delayed by 5 seconds (public IP lookup)
             fetchFuture = exec.scheduleAtFixedRate(this::doFetch, 5, 100, TimeUnit.SECONDS);
 
             isRunning = true;
@@ -155,31 +156,37 @@ public class NodeManager {
     /**
      * Get seed nodes from DNS records.
      * 
-     * @param networkId
+     * @param network
      * @return
      */
-    public static Set<Node> getSeedNodes(byte networkId) {
+    public Set<Node> getSeedNodes(Network network) {
         Set<Node> nodes = new HashSet<>();
 
-        String name = null;
-        try {
-            switch (networkId) {
-            case Constants.MAINNET_ID:
-                name = DNS_SEED_MAINNET;
-                break;
-            case Constants.TESTNET_ID:
-                name = DNS_SEED_TESTNET;
-                break;
-            default:
-                return nodes;
-            }
-
-            for (InetAddress a : InetAddress.getAllByName(name)) {
-                nodes.add(new Node(a, Constants.DEFAULT_P2P_PORT));
-            }
-        } catch (UnknownHostException e) {
-            logger.info("Failed to get seed nodes from {}", name);
+        List<String> names;
+        switch (network) {
+        case MAINNET:
+            names = kernel.getConfig().netDnsSeedsMainNet();
+            break;
+        case TESTNET:
+            names = kernel.getConfig().netDnsSeedsTestNet();
+            break;
+        default:
+            return nodes;
         }
+
+        names.parallelStream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .map(name -> {
+                    try {
+                        return InetAddress.getAllByName(name);
+                    } catch (UnknownHostException e) {
+                        logger.warn("Failed to get seed nodes from {}", name);
+                        return new InetAddress[0];
+                    }
+                })
+                .flatMap(Stream::of)
+                .forEach(address -> nodes.add(new Node(address.getHostAddress(), Constants.DEFAULT_P2P_PORT)));
 
         return nodes;
     }
@@ -211,7 +218,7 @@ public class NodeManager {
      * Fetches seed nodes from DNS records or configuration.
      */
     protected void doFetch() {
-        addNodes(getSeedNodes(config.networkId()));
+        addNodes(getSeedNodes(config.network()));
     }
 
     /**
@@ -219,7 +226,7 @@ public class NodeManager {
      */
     public static class Node {
 
-        private InetSocketAddress address;
+        private final InetSocketAddress address;
 
         /**
          * Construct a node with the given socket address.

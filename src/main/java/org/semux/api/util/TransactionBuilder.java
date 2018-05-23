@@ -1,17 +1,21 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.api.util;
 
+import static org.semux.core.Amount.Unit.NANO_SEM;
+
 import org.semux.Kernel;
+import org.semux.Network;
+import org.semux.core.Amount;
 import org.semux.core.Transaction;
 import org.semux.core.TransactionType;
 import org.semux.crypto.CryptoException;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.util.Bytes;
 
 /**
@@ -20,7 +24,12 @@ import org.semux.util.Bytes;
  */
 public class TransactionBuilder {
 
-    private Kernel kernel;
+    private final Kernel kernel;
+
+    /**
+     * Network id
+     */
+    private Network network;
 
     /**
      * Transaction type
@@ -30,7 +39,7 @@ public class TransactionBuilder {
     /**
      * Transaction sender account
      */
-    private EdDSA account;
+    private Key account;
 
     /**
      * Transaction recipient address
@@ -40,26 +49,62 @@ public class TransactionBuilder {
     /**
      * Transaction value
      */
-    private long value;
+    private Amount value;
 
     /**
      * Transaction fee
      */
-    private long fee;
+    private Amount fee;
+
+    /**
+     * Transaction nonce.
+     */
+    private Long nonce;
+
+    /**
+     * Transaction timestamp.
+     */
+    private Long timestamp;
 
     /**
      * Transaction data
      */
     private byte[] data;
 
-    public TransactionBuilder(Kernel kernel, TransactionType type) {
+    public TransactionBuilder(Kernel kernel) {
         this.kernel = kernel;
+    }
+
+    public TransactionBuilder withType(TransactionType type) {
+        if (type == null) {
+            throw new IllegalArgumentException("Parameter `type` is required");
+        }
+
         this.type = type;
+        return this;
+    }
+
+    public TransactionBuilder withType(String type) {
+        if (type == null) {
+            throw new IllegalArgumentException("Parameter `type` is required");
+        }
+
+        this.type = TransactionType.valueOf(type);
+        return this;
+    }
+
+    public TransactionBuilder withNetwork(String network) {
+        if (network == null) {
+            throw new IllegalArgumentException("Parameter `network` is required");
+        }
+
+        this.network = Network.valueOf(network);
+        return this;
     }
 
     public TransactionBuilder withFrom(String from) {
         if (from == null) {
-            throw new IllegalArgumentException("Parameter `from` can't be null");
+            throw new IllegalArgumentException("Parameter `from` is required");
         }
 
         try {
@@ -78,14 +123,14 @@ public class TransactionBuilder {
 
     public TransactionBuilder withTo(String to) {
         if (type == TransactionType.DELEGATE) {
-            if (to != null) {
+            if (to != null && !to.isEmpty()) {
                 throw new IllegalArgumentException("Parameter `to` is not needed for DELEGATE transaction");
             }
             return this; // ignore the provided parameter
         }
 
         if (to == null) {
-            throw new IllegalArgumentException("Parameter `to` can't be null");
+            throw new IllegalArgumentException("Parameter `to` is required");
         }
 
         try {
@@ -94,12 +139,16 @@ public class TransactionBuilder {
             throw new IllegalArgumentException("Parameter `to` is not a valid hexadecimal string");
         }
 
+        if (this.to.length != Key.ADDRESS_LEN) {
+            throw new IllegalArgumentException("Parameter `to` is not a valid address");
+        }
+
         return this;
     }
 
     public TransactionBuilder withValue(String value) {
         if (type == TransactionType.DELEGATE) {
-            if (value != null) {
+            if (value != null && !value.isEmpty()) {
                 throw new IllegalArgumentException("Parameter `value` is not needed for DELEGATE transaction");
             }
             return this; // ignore the provided parameter
@@ -110,7 +159,7 @@ public class TransactionBuilder {
         }
 
         try {
-            this.value = Long.parseLong(value);
+            this.value = NANO_SEM.of(Long.parseLong(value));
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Parameter `value` is not a valid number");
         }
@@ -118,17 +167,36 @@ public class TransactionBuilder {
         return this;
     }
 
-    public TransactionBuilder withFee(String fee) {
-        if (fee == null) {
-            throw new IllegalArgumentException("Parameter `fee` is required");
+    public TransactionBuilder withFee(String fee, boolean optional) {
+        if (optional && (fee == null || fee.isEmpty())) {
+            this.fee = kernel.getConfig().minTransactionFee();
+            return this;
         }
 
         try {
-            this.fee = Long.parseLong(fee);
+            this.fee = NANO_SEM.of(Long.parseLong(fee));
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Parameter `fee` is not a valid number");
         }
 
+        return this;
+    }
+
+    public TransactionBuilder withNonce(String nonce) {
+        try {
+            this.nonce = Long.parseLong(nonce);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Parameter 'nonce' is not a valid number");
+        }
+        return this;
+    }
+
+    public TransactionBuilder withTimestamp(String timestamp) {
+        try {
+            this.timestamp = timestamp != null && !timestamp.isEmpty() ? Long.parseLong(timestamp) : null;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Parameter 'timestamp' is not a valid number");
+        }
         return this;
     }
 
@@ -142,17 +210,29 @@ public class TransactionBuilder {
         return this;
     }
 
-    public Transaction build() {
-        long timestamp = System.currentTimeMillis();
-        long nonce = kernel.getPendingManager().getNonce(account.toAddress());
-
+    public Transaction buildUnsigned() {
         // DELEGATE transaction has fixed receiver and value
         if (type == TransactionType.DELEGATE) {
             to = Bytes.EMPTY_ADDRESS;
             value = kernel.getConfig().minDelegateBurnAmount();
         }
 
-        return new Transaction(kernel.getConfig().networkId(), type, to, value, fee, nonce, timestamp, data)
-                .sign(account);
+        return new Transaction(
+                network != null ? network : kernel.getConfig().network(),
+                type,
+                to,
+                value,
+                fee,
+                nonce != null ? nonce : kernel.getPendingManager().getNonce(account.toAddress()),
+                timestamp != null ? timestamp : System.currentTimeMillis(),
+                data);
+    }
+
+    public Transaction buildSigned() {
+        if (account == null) {
+            throw new IllegalArgumentException("TransactionBuilder#withFrom must be called");
+        }
+
+        return buildUnsigned().sign(account);
     }
 }

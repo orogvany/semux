@@ -1,11 +1,13 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.gui;
 
+import static java.util.Arrays.stream;
+import static org.semux.core.Amount.Unit.SEM;
 import static org.semux.gui.TextContextMenuItem.COPY;
 import static org.semux.gui.TextContextMenuItem.CUT;
 import static org.semux.gui.TextContextMenuItem.PASTE;
@@ -17,10 +19,13 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URL;
 import java.text.DateFormat;
-import java.text.NumberFormat;
+import java.text.DecimalFormat;
 import java.text.ParseException;
 import java.text.ParsePosition;
 import java.util.Arrays;
@@ -34,24 +39,30 @@ import java.util.Optional;
 
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
+import javax.swing.JProgressBar;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.LookAndFeel;
+import javax.swing.UIManager;
+import javax.swing.plaf.metal.MetalLookAndFeel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumnModel;
 
+import org.semux.core.Amount;
+import org.semux.core.Amount.Unit;
 import org.semux.core.Transaction;
-import org.semux.core.Unit;
 import org.semux.core.state.Delegate;
 import org.semux.core.state.DelegateState;
 import org.semux.crypto.Hex;
-import org.semux.gui.exception.QRCodeException;
-import org.semux.message.GUIMessages;
+import org.semux.gui.model.WalletAccount;
+import org.semux.message.GuiMessages;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,14 +79,16 @@ public class SwingUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(SwingUtil.class);
 
-    private static final int DECIMALS = 3;
+    private static int fractionDigits = 3;
+
+    private static Unit unit = SEM;
 
     private SwingUtil() {
     }
 
     /**
      * Put a JFrame in the center of screen.
-     * 
+     *
      * @param frame
      * @param width
      * @param height
@@ -90,7 +103,7 @@ public class SwingUtil {
 
     /**
      * Load an ImageIcon from resource, and rescale it.
-     * 
+     *
      * @param imageName
      *            image name
      * @return an image icon if exists, otherwise null
@@ -113,7 +126,7 @@ public class SwingUtil {
 
     /**
      * Generate an empty image icon.
-     * 
+     *
      * @param width
      * @param height
      * @return
@@ -130,7 +143,7 @@ public class SwingUtil {
 
     /**
      * Set the preferred width of table columns.
-     * 
+     *
      * @param table
      * @param total
      * @param widths
@@ -144,7 +157,7 @@ public class SwingUtil {
 
     /**
      * Set the alignments of table columns.
-     * 
+     *
      * @param table
      * @param right
      */
@@ -162,75 +175,111 @@ public class SwingUtil {
 
     /**
      * Generate an QR image for the given text.
-     * 
+     *
      * @param text
      * @param width
      * @param height
      * @return
+     * @throws WriterException
      */
-    public static BufferedImage generateQR(String text, int width, int height) throws QRCodeException {
-        try {
-            Map<EncodeHintType, Object> hintMap = new EnumMap<>(EncodeHintType.class);
-            hintMap.put(EncodeHintType.CHARACTER_SET, "UTF-8");
-            hintMap.put(EncodeHintType.MARGIN, 2);
-            hintMap.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.L);
+    public static BufferedImage createQrImage(String text, int width, int height) throws WriterException {
+        Map<EncodeHintType, Object> hintMap = new EnumMap<>(EncodeHintType.class);
+        hintMap.put(EncodeHintType.CHARACTER_SET, "UTF-8");
+        hintMap.put(EncodeHintType.MARGIN, 2);
+        hintMap.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.L);
 
-            QRCodeWriter writer = new QRCodeWriter();
-            BitMatrix matrix = writer.encode(text, BarcodeFormat.QR_CODE, width, height, hintMap);
-            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-            image.createGraphics();
+        QRCodeWriter writer = new QRCodeWriter();
+        BitMatrix matrix = writer.encode(text, BarcodeFormat.QR_CODE, width, height, hintMap);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        image.createGraphics();
 
-            Graphics2D graphics = (Graphics2D) image.getGraphics();
-            graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, width, height);
-            graphics.setColor(Color.BLACK);
+        Graphics2D graphics = (Graphics2D) image.getGraphics();
+        graphics.setColor(Color.WHITE);
+        graphics.fillRect(0, 0, width, height);
+        graphics.setColor(Color.BLACK);
 
-            for (int i = 0; i < width; i++) {
-                for (int j = 0; j < width; j++) {
-                    if (matrix.get(i, j)) {
-                        graphics.fillRect(i, j, 1, 1);
-                    }
+        for (int i = 0; i < width; i++) {
+            for (int j = 0; j < width; j++) {
+                if (matrix.get(i, j)) {
+                    graphics.fillRect(i, j, 1, 1);
                 }
             }
-
-            return image;
-        } catch (WriterException e) {
-            throw new QRCodeException(e);
         }
+
+        return image;
     }
 
     /**
      * Adds a copy-paste-cut popup to the given component.
-     * 
+     *
      * @param comp
      */
-    public static void addTextContextMenu(JComponent comp, List<TextContextMenuItem> textContextMenuItems) {
+    private static void addTextContextMenu(JComponent comp, List<TextContextMenuItem> textContextMenuItems) {
         JPopupMenu popup = new JPopupMenu();
 
-        for (TextContextMenuItem textContextMenuItem : textContextMenuItems) {
-            JMenuItem menuItem = new JMenuItem(textContextMenuItem.toAction());
-            menuItem.setText(textContextMenuItem.toString());
+        textContextMenuItems.forEach(i -> {
+            JMenuItem menuItem = new JMenuItem(i.toAction());
+            menuItem.setText(i.toString());
             popup.add(menuItem);
-        }
+        });
 
         comp.setComponentPopupMenu(popup);
     }
 
     /**
+     * Ensures that a text field gets focused when it's clicked. Credits to:
+     * https://stackoverflow.com/a/41965891/670662
+     *
+     * @param textField
+     */
+    private static void addTextMouseClickFocusListener(final JComponent textField) {
+        textField.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent evt) {
+                textField.requestFocusInWindow();
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent evt) {
+                textField.requestFocusInWindow();
+            }
+
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                textField.requestFocusInWindow();
+            }
+        });
+    }
+
+    /**
      * Generates a text field with copy-paste-cut popup menu.
-     * 
+     *
      * @return
      */
     public static JTextField textFieldWithCopyPastePopup() {
         JTextField textField = new JTextField();
         textField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         addTextContextMenu(textField, Arrays.asList(COPY, PASTE, CUT));
+        addTextMouseClickFocusListener(textField);
+        return textField;
+    }
+
+    /**
+     * Generates a text field with copy-paste-cut popup menu.
+     *
+     * @return
+     */
+    public static <T> JComboBox<T> comboBoxWithCopyPastePopup() {
+        JComboBox<T> textField = new JComboBox<>();
+        textField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        addTextContextMenu(textField, Arrays.asList(COPY, PASTE, CUT));
+        addTextMouseClickFocusListener(textField);
         return textField;
     }
 
     /**
      * Generates a readonly selectable text area.
-     * 
+     *
      * @param txt
      * @return
      */
@@ -246,7 +295,7 @@ public class SwingUtil {
 
     /**
      * Convenience factory method for creating buttons
-     * 
+     *
      * @param text
      * @param listener
      * @param action
@@ -261,15 +310,16 @@ public class SwingUtil {
 
     /**
      * Parses a number from a localized string.
-     * 
+     *
      * @param str
      * @return
      * @throws ParseException
      */
-    public static Number parseNumber(String str) throws ParseException {
-        NumberFormat format = NumberFormat.getInstance();
+    public static BigDecimal parseNumber(String str) throws ParseException {
+        DecimalFormat format = new DecimalFormat();
+        format.setParseBigDecimal(true);
         ParsePosition position = new ParsePosition(0);
-        Number number = format.parse(str, position);
+        BigDecimal number = (BigDecimal) format.parse(str, position);
         if (position.getIndex() != str.length() || number == null) {
             throw new ParseException("Failed to parse number: " + str, position.getIndex());
         }
@@ -278,22 +328,23 @@ public class SwingUtil {
 
     /**
      * Formats a number as a localized string.
-     * 
+     *
      * @param number
      * @param decimals
      * @return
      */
     public static String formatNumber(Number number, int decimals) {
-        NumberFormat format = NumberFormat.getInstance();
-        format.setMinimumFractionDigits(decimals);
+        DecimalFormat format = new DecimalFormat();
+        format.setMinimumFractionDigits(0);
         format.setMaximumFractionDigits(decimals);
+        format.setRoundingMode(RoundingMode.FLOOR);
 
         return format.format(number);
     }
 
     /**
      * Format a number with zero decimals.
-     * 
+     *
      * @param number
      * @return
      */
@@ -303,52 +354,106 @@ public class SwingUtil {
 
     /**
      * Formats a Semux value.
-     * 
-     * @param nano
-     * @param withUnit
+     *
+     * @param a
      * @return
      */
-    public static String formatValue(long nano, boolean withUnit) {
-        return formatNumber(nano / (double) Unit.SEM, DECIMALS) + (withUnit ? " SEM" : "");
+    public static String formatAmount(Amount a) {
+        return formatAmount(a, unit, fractionDigits, true);
     }
 
     /**
      * Formats a Semux value.
-     * 
-     * @param nano
+     *
+     * @param a
      * @return
      */
-    public static String formatValue(long nano) {
-        return formatValue(nano, true);
+    public static String formatAmountNoUnit(Amount a) {
+        return formatAmount(a, unit, fractionDigits, false);
+    }
+
+    /**
+     * Formats a Semux value without truncation.
+     *
+     * @param a
+     * @return
+     */
+    public static String formatAmountFull(Amount a) {
+        return formatAmount(a, unit, 9, true);
+    }
+
+    /**
+     * Formats a Semux value.
+     *
+     * @param a
+     * @param unit
+     * @param fractionDigits
+     * @param withUnit
+     * @return
+     */
+    private static String formatAmount(Amount a, Unit unit, int fractionDigits, boolean withUnit) {
+        return formatNumber(unit.toDecimal(a, fractionDigits), fractionDigits)
+                + (withUnit ? (" " + unit.symbol) : "");
+    }
+
+    /**
+     * Set the default unit for {@link SwingUtil#formatAmount(Amount)}
+     *
+     * @param unit
+     */
+    public static void setDefaultUnit(String unit) {
+        SwingUtil.unit = Unit.ofSymbol(unit);
+    }
+
+    /**
+     * Set the default fraction digits for {@link SwingUtil#formatAmount(Amount)}
+     *
+     * @param fractionDigits
+     */
+    public static void setDefaultFractionDigits(int fractionDigits) {
+        SwingUtil.fractionDigits = fractionDigits;
     }
 
     /**
      * Parses a Semux value.
-     * 
+     *
      * @param str
      * @return
      * @throws ParseException
      */
-    public static long parseValue(String str) throws ParseException {
-        if (str.endsWith(" SEM")) {
-            str = str.substring(0, str.length() - 4);
-        }
-        return (long) (parseNumber(str).doubleValue() * Unit.SEM);
+    public static Amount parseAmount(String str) throws ParseException {
+        Unit theUnit = stream(Unit.values())
+                .filter(u -> str.endsWith(" " + u.symbol))
+                .findAny()
+                .orElse(unit);
+        String strNoUnit = str.replace(" " + theUnit.symbol, "");
+
+        return theUnit.fromDecimal(parseNumber(strNoUnit));
     }
 
     /**
      * Formats a percentage
-     * 
+     *
      * @param percentage
      * @return
      */
     public static String formatPercentage(double percentage) {
-        return formatNumber(percentage, 1) + " %";
+        return formatPercentage(percentage, 1);
+    }
+
+    /**
+     * Formats a percentage
+     *
+     * @param percentage
+     * @return
+     */
+    public static String formatPercentage(double percentage, int decimals) {
+        return formatNumber(percentage, decimals) + " %";
     }
 
     /**
      * Format a timestamp into date string.
-     * 
+     *
      * @param timestamp
      * @return
      */
@@ -360,7 +465,7 @@ public class SwingUtil {
 
     /**
      * Parse timestamp from its string representation.
-     * 
+     *
      * @param timestamp
      * @return
      * @throws ParseException
@@ -373,17 +478,17 @@ public class SwingUtil {
 
     /**
      * Formats a vote
-     * 
+     *
      * @param vote
      * @return
      */
-    public static String formatVote(long vote) {
-        return formatNumber(vote / (double) Unit.SEM);
+    public static String formatVote(Amount vote) {
+        return formatAmountNoUnit(vote);
     }
 
     /**
      * Parses a percentage.
-     * 
+     *
      * @param str
      * @return
      * @throws ParseException
@@ -394,12 +499,12 @@ public class SwingUtil {
 
     /**
      * Number string comparator based on its value.
-     * 
+     *
      * @exception
      */
     public static final Comparator<String> NUMBER_COMPARATOR = (o1, o2) -> {
         try {
-            return Double.compare(parseNumber(o1).doubleValue(), parseNumber(o2).doubleValue());
+            return parseNumber(o1).compareTo(parseNumber(o2));
         } catch (ParseException e) {
             throw new NumberFormatException("Invalid number strings: " + o1 + ", " + o2);
         }
@@ -407,12 +512,12 @@ public class SwingUtil {
 
     /**
      * Value string comparator based on its value.
-     * 
+     *
      * @exception
      */
     public static final Comparator<String> VALUE_COMPARATOR = (o1, o2) -> {
         try {
-            return Double.compare(parseValue(o1), parseValue(o2));
+            return parseAmount(o1).compareTo(parseAmount(o2));
         } catch (ParseException e) {
             throw new NumberFormatException("Invalid number strings: " + o1 + ", " + o2);
         }
@@ -420,7 +525,7 @@ public class SwingUtil {
 
     /**
      * Percentage string comparator based on its value.
-     * 
+     *
      * @exception
      */
     public static final Comparator<String> PERCENTAGE_COMPARATOR = (o1, o2) -> {
@@ -433,7 +538,7 @@ public class SwingUtil {
 
     /**
      * Timestamp/date string comparator based on its value.
-     * 
+     *
      * @exception
      */
     public static final Comparator<String> TIMESTAMP_COMPARATOR = (o1, o2) -> {
@@ -446,60 +551,60 @@ public class SwingUtil {
 
     /**
      * Returns an description of an account.
-     * 
+     *
      * @param tx
      * @return
      */
-    public static String getTransactionDescription(SemuxGUI gui, Transaction tx) {
+    public static String getTransactionDescription(SemuxGui gui, Transaction tx) {
         switch (tx.getType()) {
         case COINBASE:
-            return GUIMessages.get("BlockReward") + " => "
-                    + getDelegateName(gui, tx.getTo()).orElse(GUIMessages.get("UnknownDelegate"));
+            return GuiMessages.get("BlockReward") + " => " + describeAddress(gui, tx.getTo());
         case VOTE:
         case UNVOTE:
         case TRANSFER:
-            return getTransactionRecipientsDescription(gui, tx);
+            return describeAddress(gui, tx.getFrom()) + " => " + describeAddress(gui, tx.getTo());
         case DELEGATE:
-            return GUIMessages.get("DelegateRegistration");
+            return GuiMessages.get("DelegateRegistration");
         default:
             return StringUtil.EMPTY_STRING;
         }
     }
 
     /**
+     * Returns the alias, or delegate name, or abbreviation of an address.
      *
-     * @param gui
-     * @param tx
-     * @return description of transaction with one or multiple recipients
-     */
-    private static String getTransactionRecipientsDescription(SemuxGUI gui, Transaction tx) {
-        return getAddressAlias(gui, tx.getFrom()) + " => " + getAddressAlias(gui, tx.getTo());
-    }
-
-    /**
-     * Returns the name of an address.
-     * 
      * @param gui
      * @param address
      * @return
      */
-    private static String getAddressAlias(SemuxGUI gui, byte[] address) {
-        Optional<String> name = getDelegateName(gui, address);
-        if (name.isPresent()) {
-            return name.get();
+    public static String describeAddress(SemuxGui gui, byte[] address) {
+        return getAddressAlias(gui, address)
+                .orElse(getAddressDelegateName(gui, address).orElse(getAddressAbbr(address)));
+    }
+
+    /**
+     * Returns the alias of an address.
+     *
+     * @param gui
+     * @param address
+     * @return
+     */
+    public static Optional<String> getAddressAlias(SemuxGui gui, byte[] address) {
+        WalletAccount account = gui.getModel().getAccount(address);
+        if (account != null) {
+            return account.getName();
         }
 
-        int n = gui.getModel().getAccountNumber(address);
-        return n == -1 ? Hex.encode0x(address) : GUIMessages.get("AccountNum", n);
+        return Optional.empty();
     }
 
     /**
      * Returns the name of the delegate that corresponds to the given address.
-     * 
+     *
      * @param address
      * @return
      */
-    public static Optional<String> getDelegateName(SemuxGUI gui, byte[] address) {
+    public static Optional<String> getAddressDelegateName(SemuxGui gui, byte[] address) {
         DelegateState ds = gui.getKernel().getBlockchain().getDelegateState();
         Delegate d = ds.getDelegateByAddress(address);
 
@@ -507,13 +612,28 @@ public class SwingUtil {
     }
 
     /**
-     * Returns a short version of address.
-     * 
+     * Returns the abbreviation of the given address.
+     *
      * @param address
      * @return
      */
-    public static String shortAddress(byte[] address) {
+    public static String getAddressAbbr(byte[] address) {
         return Hex.PREF + Hex.encode(Arrays.copyOfRange(address, 0, 2)) + "..."
                 + Hex.encode(Arrays.copyOfRange(address, address.length - 2, address.length));
+    }
+
+    public static JProgressBar createMetalProgressBar() {
+        JProgressBar progressBar;
+
+        try {
+            LookAndFeel defaultLookAndFeel = UIManager.getLookAndFeel();
+            UIManager.setLookAndFeel(MetalLookAndFeel.class.getCanonicalName());
+            progressBar = new JProgressBar();
+            UIManager.setLookAndFeel(defaultLookAndFeel);
+        } catch (Exception e) {
+            progressBar = new JProgressBar();
+        }
+
+        return progressBar;
     }
 }

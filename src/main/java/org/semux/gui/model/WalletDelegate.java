@@ -1,34 +1,42 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.gui.model;
 
-import java.util.List;
+import static org.semux.core.Amount.ZERO;
 
-import org.semux.Kernel;
+import org.semux.core.Amount;
 import org.semux.core.state.Delegate;
-import org.semux.crypto.Hex;
 
 public class WalletDelegate extends Delegate {
 
-    protected long votesFromMe;
+    private Amount votesFromMe = ZERO;
 
-    protected long numberOfBlocksForged;
-    protected long numberOfTurnsHit;
-    protected long numberOfTurnsMissed;
+    private long numberOfBlocksForged;
+    private long numberOfTurnsHit;
+    private long numberOfTurnsMissed;
+
+    private Boolean isValidator;
+    private Integer validatorPosition;
 
     public WalletDelegate(Delegate d) {
-        super(d.getAddress(), d.getName(), d.getRegisteredAt(), d.getVotes());
+        this(d, false, null);
     }
 
-    public long getVotesFromMe() {
+    public WalletDelegate(Delegate d, Boolean isValidator, Integer validatorPosition) {
+        super(d.getAddress(), d.getName(), d.getRegisteredAt(), d.getVotes());
+        this.isValidator = isValidator;
+        this.validatorPosition = validatorPosition;
+    }
+
+    public Amount getVotesFromMe() {
         return votesFromMe;
     }
 
-    public void setVotesFromMe(long votesFromMe) {
+    public void setVotesFromMe(Amount votesFromMe) {
         this.votesFromMe = votesFromMe;
     }
 
@@ -61,13 +69,11 @@ public class WalletDelegate extends Delegate {
         return total == 0 ? 0 : numberOfTurnsHit * 100.0 / total;
     }
 
-    public boolean isValidator(Kernel kernel) {
-        List<String> validators = kernel.getBlockchain().getValidators();
-        for (String v : validators) {
-            if (v.equals(Hex.encode(getAddress()))) {
-                return true;
-            }
-        }
-        return false;
+    public boolean isValidator() {
+        return isValidator;
+    }
+
+    public int getValidatorPosition() {
+        return validatorPosition;
     }
 }

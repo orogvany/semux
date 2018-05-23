@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -15,7 +15,7 @@ import java.util.Map;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.semux.config.Constants;
+import org.semux.Network;
 import org.semux.core.Genesis.Premine;
 import org.semux.crypto.Hex;
 import org.semux.util.ByteArray;
@@ -23,14 +23,14 @@ import org.semux.util.Bytes;
 
 public class GenesisTest {
 
-    private static byte[] ZERO_ADDRESS = Hex.decode0x("0000000000000000000000000000000000000000");
-    private static byte[] ZERO_HASH = Bytes.EMPTY_HASH;
+    private static final byte[] ZERO_ADDRESS = Hex.decode0x("0000000000000000000000000000000000000000");
+    private static final byte[] ZERO_HASH = Bytes.EMPTY_HASH;
 
     Genesis genesis;
 
     @Before
     public void setUp() {
-        genesis = Genesis.load(Constants.NETWORKS[Constants.MAINNET_ID]);
+        genesis = Genesis.load(Network.MAINNET);
     }
 
     @Test
@@ -53,7 +53,7 @@ public class GenesisTest {
 
         assertFalse(premine.isEmpty());
         for (Premine p : premine.values()) {
-            assertTrue(p.getAmount() > 0);
+            assertTrue(p.getAmount().gt0());
         }
     }
 

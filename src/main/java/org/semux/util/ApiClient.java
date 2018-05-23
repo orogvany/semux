@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -21,9 +21,9 @@ import org.semux.crypto.Hex;
  */
 public class ApiClient {
 
-    private InetSocketAddress server;
-    private String username;
-    private String password;
+    private final InetSocketAddress server;
+    private final String username;
+    private final String password;
 
     /**
      * Crate an API client instance.

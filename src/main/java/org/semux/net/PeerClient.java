@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.semux.config.Config;
 import org.semux.config.Constants;
-import org.semux.crypto.EdDSA;
+import org.semux.crypto.Key;
 import org.semux.net.NodeManager.Node;
 import org.semux.util.SystemUtil;
 import org.slf4j.Logger;
@@ -39,7 +39,7 @@ public class PeerClient {
     private static final Logger logger = LoggerFactory.getLogger(PeerClient.class);
 
     private static final ThreadFactory factory = new ThreadFactory() {
-        AtomicInteger cnt = new AtomicInteger(0);
+        final AtomicInteger cnt = new AtomicInteger(0);
 
         @Override
         public Thread newThread(Runnable r) {
@@ -49,13 +49,12 @@ public class PeerClient {
 
     private static final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(factory);
 
+    private final int port;
+    private final Key coinbase;
+    private final EventLoopGroup workerGroup;
+
     private ScheduledFuture<?> ipRefreshFuture = null;
-
     private String ip;
-    private int port;
-    private EdDSA coinbase;
-
-    private EventLoopGroup workerGroup;
 
     /**
      * Create a new PeerClient instance.
@@ -63,7 +62,7 @@ public class PeerClient {
      * @param config
      * @param coinbase
      */
-    public PeerClient(Config config, EdDSA coinbase) {
+    public PeerClient(Config config, Key coinbase) {
         this(config.p2pDeclaredIp().orElse(InetAddress.getLoopbackAddress().getHostAddress()), config.p2pListenPort(),
                 coinbase);
 
@@ -79,7 +78,7 @@ public class PeerClient {
      * @param port
      * @param coinbase
      */
-    public PeerClient(String ip, int port, EdDSA coinbase) {
+    public PeerClient(String ip, int port, Key coinbase) {
         logger.info("Use IP address: {}", ip);
 
         this.ip = ip;
@@ -150,7 +149,7 @@ public class PeerClient {
      * 
      * @return
      */
-    public EdDSA getCoinbase() {
+    public Key getCoinbase() {
         return coinbase;
     }
 

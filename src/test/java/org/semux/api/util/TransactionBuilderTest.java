@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -22,12 +22,12 @@ public class TransactionBuilderTest {
     @Test
     public void testDelegateWithTo() {
         expectedException.expect(IllegalArgumentException.class);
-        new TransactionBuilder(mock(Kernel.class), TransactionType.DELEGATE).withTo("0xabc");
+        new TransactionBuilder(mock(Kernel.class)).withType(TransactionType.DELEGATE).withTo("0xabc");
     }
 
     @Test
     public void testDelegateWithValue() {
         expectedException.expect(IllegalArgumentException.class);
-        new TransactionBuilder(mock(Kernel.class), TransactionType.DELEGATE).withValue("10");
+        new TransactionBuilder(mock(Kernel.class)).withType(TransactionType.DELEGATE).withValue("10");
     }
 }

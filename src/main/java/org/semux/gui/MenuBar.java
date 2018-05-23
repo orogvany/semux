@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
@@ -9,6 +9,7 @@ package org.semux.gui;
 import java.awt.Desktop;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -16,6 +17,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 
+import javax.swing.Icon;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JMenu;
@@ -24,13 +26,15 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import org.semux.config.Constants;
 import org.semux.core.Wallet;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.gui.dialog.ChangePasswordDialog;
+import org.semux.gui.dialog.ConsoleDialog;
 import org.semux.gui.dialog.ExportPrivateKeyDialog;
 import org.semux.gui.dialog.InputDialog;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
 import org.semux.util.SystemUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,28 +43,30 @@ public class MenuBar extends JMenuBar implements ActionListener {
 
     private static final long serialVersionUID = 1L;
     private static final Logger logger = LoggerFactory.getLogger(MenuBar.class);
-    public static final String HELP_URL = "https://github.com/semuxproject/semux/wiki";
+    public static final String HELP_URL = "https://github.com/semuxproject/semux/tree/v" + Constants.CLIENT_VERSION
+            + "/docs";
 
-    private transient SemuxGUI gui;
-    private JFrame frame;
+    private final transient SemuxGui gui;
+    private final JFrame frame;
 
-    public MenuBar(SemuxGUI gui, JFrame frame) {
+    public MenuBar(SemuxGui gui, JFrame frame) {
         this.gui = gui;
         this.frame = frame;
 
-        JMenu menuFile = new JMenu(GUIMessages.get("File"));
+        JMenu menuFile = new JMenu(GuiMessages.get("File"));
         this.add(menuFile);
 
-        JMenuItem itemExit = new JMenuItem(GUIMessages.get("Exit"));
+        JMenuItem itemExit = new JMenuItem(GuiMessages.get("Exit"));
         itemExit.setName("itemExit");
+        itemExit.setMnemonic(KeyEvent.VK_X);
         itemExit.setActionCommand(Action.EXIT.name());
         itemExit.addActionListener(this);
         menuFile.add(itemExit);
 
-        JMenu menuWallet = new JMenu(GUIMessages.get("Wallet"));
+        JMenu menuWallet = new JMenu(GuiMessages.get("Wallet"));
         this.add(menuWallet);
 
-        JMenuItem itemChangePassword = new JMenuItem(GUIMessages.get("ChangePassword"));
+        JMenuItem itemChangePassword = new JMenuItem(GuiMessages.get("ChangePassword"));
         itemChangePassword.setName("itemChangePassword");
         itemChangePassword.setActionCommand(Action.CHANGE_PASSWORD.name());
         itemChangePassword.addActionListener(this);
@@ -68,13 +74,13 @@ public class MenuBar extends JMenuBar implements ActionListener {
 
         menuWallet.addSeparator();
 
-        JMenuItem itemRecover = new JMenuItem(GUIMessages.get("RecoverWallet"));
+        JMenuItem itemRecover = new JMenuItem(GuiMessages.get("RecoverWallet"));
         itemRecover.setName("itemRecover");
         itemRecover.setActionCommand(Action.RECOVER_ACCOUNTS.name());
         itemRecover.addActionListener(this);
         menuWallet.add(itemRecover);
 
-        JMenuItem itemBackupWallet = new JMenuItem(GUIMessages.get("BackupWallet"));
+        JMenuItem itemBackupWallet = new JMenuItem(GuiMessages.get("BackupWallet"));
         itemBackupWallet.setName("itemBackupWallet");
         itemBackupWallet.setActionCommand(Action.BACKUP_WALLET.name());
         itemBackupWallet.addActionListener(this);
@@ -82,28 +88,42 @@ public class MenuBar extends JMenuBar implements ActionListener {
 
         menuWallet.addSeparator();
 
-        JMenuItem itemImportPrivateKey = new JMenuItem(GUIMessages.get("ImportPrivateKey"));
+        JMenuItem itemImportPrivateKey = new JMenuItem(GuiMessages.get("ImportPrivateKey"));
         itemImportPrivateKey.setName("itemImportPrivateKey");
         itemImportPrivateKey.setActionCommand(Action.IMPORT_PRIVATE_KEY.name());
         itemImportPrivateKey.addActionListener(this);
         menuWallet.add(itemImportPrivateKey);
 
-        JMenuItem itemExportPrivateKey = new JMenuItem(GUIMessages.get("ExportPrivateKey"));
+        JMenuItem itemExportPrivateKey = new JMenuItem(GuiMessages.get("ExportPrivateKey"));
         itemExportPrivateKey.setName("itemExportPrivateKey");
         itemExportPrivateKey.setActionCommand(Action.EXPORT_PRIVATE_KEY.name());
         itemExportPrivateKey.addActionListener(this);
         menuWallet.add(itemExportPrivateKey);
 
-        JMenu menuHelp = new JMenu(GUIMessages.get("Help"));
+        JMenu menuHelp = new JMenu(GuiMessages.get("Help"));
         this.add(menuHelp);
 
-        JMenuItem itemAbout = new JMenuItem(GUIMessages.get("About"));
+        JMenuItem itemAbout = new JMenuItem(GuiMessages.get("About"));
         itemAbout.setName("itemAbout");
         itemAbout.setActionCommand(Action.ABOUT.name());
         itemAbout.addActionListener(this);
         menuHelp.add(itemAbout);
 
-        JMenuItem itemHelp = new JMenuItem(GUIMessages.get("Help"));
+        JMenuItem itemConsole = new JMenuItem(GuiMessages.get("Console"));
+        itemConsole.setName("itemConsole");
+        itemConsole.setActionCommand(Action.CONSOLE.name());
+        itemConsole.addActionListener(this);
+        menuHelp.add(itemConsole);
+
+        if (gui.getKernel().getConfig().apiEnabled()) {
+            JMenuItem itemApiExplorer = new JMenuItem(GuiMessages.get("ApiExplorer"));
+            itemApiExplorer.setName("itemApiExplorer");
+            itemApiExplorer.setActionCommand(Action.API_EXPLORER.name());
+            itemApiExplorer.addActionListener(this);
+            menuHelp.add(itemApiExplorer);
+        }
+
+        JMenuItem itemHelp = new JMenuItem(GuiMessages.get("Help"));
         itemHelp.setName("itemHelp");
         itemHelp.setActionCommand(Action.HELP.name());
         itemHelp.addActionListener(this);
@@ -116,7 +136,7 @@ public class MenuBar extends JMenuBar implements ActionListener {
 
         switch (action) {
         case EXIT:
-            SystemUtil.exitAsync(0);
+            SystemUtil.exitAsync(SystemUtil.Code.OK);
             break;
         case RECOVER_ACCOUNTS:
             recoverAccounts();
@@ -135,6 +155,12 @@ public class MenuBar extends JMenuBar implements ActionListener {
             break;
         case ABOUT:
             about();
+            break;
+        case CONSOLE:
+            console();
+            break;
+        case API_EXPLORER:
+            apiExplorer();
             break;
         case HELP:
             help();
@@ -166,25 +192,30 @@ public class MenuBar extends JMenuBar implements ActionListener {
 
         JFileChooser chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-        chooser.setFileFilter(new FileNameExtensionFilter(GUIMessages.get("WalletBinaryFormat"), "data"));
+        chooser.setFileFilter(new FileNameExtensionFilter(GuiMessages.get("WalletBinaryFormat"), "data"));
 
         int ret = chooser.showOpenDialog(frame);
         if (ret == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
-            String pwd = new InputDialog(frame, GUIMessages.get("EnterPassword"), true).showAndGet();
+            String pwd = new InputDialog(frame, GuiMessages.get("EnterPassword"), true).showAndGet();
 
             if (pwd != null) {
                 Wallet w = new Wallet(file);
                 if (!w.unlock(pwd)) {
-                    JOptionPane.showMessageDialog(frame, GUIMessages.get("UnlockFailed"));
+                    JOptionPane.showMessageDialog(frame, GuiMessages.get("UnlockFailed"));
                     return;
                 }
 
                 Wallet wallet = gui.getKernel().getWallet();
-                int n = wallet.addAccounts(w.getAccounts());
-                wallet.flush();
-                JOptionPane.showMessageDialog(frame, GUIMessages.get("ImportSuccess", n));
-                gui.getModel().fireUpdateEvent();
+
+                int n = wallet.addWallet(w);
+                if (!wallet.flush()) {
+                    JOptionPane.showMessageDialog(frame, GuiMessages.get("WalletSaveFailed"));
+                } else {
+                    JOptionPane.showMessageDialog(frame, GuiMessages.get("ImportSuccess", n));
+                }
+
+                gui.updateModel();
             }
         }
     }
@@ -200,13 +231,13 @@ public class MenuBar extends JMenuBar implements ActionListener {
         JFileChooser chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
         chooser.setSelectedFile(new File("wallet.data"));
-        chooser.setFileFilter(new FileNameExtensionFilter(GUIMessages.get("WalletBinaryFormat"), "data"));
+        chooser.setFileFilter(new FileNameExtensionFilter(GuiMessages.get("WalletBinaryFormat"), "data"));
 
         int ret = chooser.showSaveDialog(frame);
         if (ret == JFileChooser.APPROVE_OPTION) {
             File dst = chooser.getSelectedFile();
             if (dst.exists()) {
-                int answer = JOptionPane.showConfirmDialog(frame, GUIMessages.get("BackupFileExists", dst.getName()));
+                int answer = JOptionPane.showConfirmDialog(frame, GuiMessages.get("BackupFileExists", dst.getName()));
                 if (answer != JOptionPane.OK_OPTION) {
                     return;
                 }
@@ -214,10 +245,10 @@ public class MenuBar extends JMenuBar implements ActionListener {
             File src = gui.getKernel().getWallet().getFile();
             try {
                 Files.copy(src.toPath(), dst.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                JOptionPane.showMessageDialog(frame, GUIMessages.get("WalletSavedAt", dst.getAbsolutePath()));
+                JOptionPane.showMessageDialog(frame, GuiMessages.get("WalletSavedAt", dst.getAbsolutePath()));
             } catch (IOException ex) {
                 logger.warn("Failed to save backup file", ex);
-                JOptionPane.showMessageDialog(frame, GUIMessages.get("SaveBackupFailed"));
+                JOptionPane.showMessageDialog(frame, GuiMessages.get("SaveBackupFailed"));
             }
         }
     }
@@ -230,20 +261,22 @@ public class MenuBar extends JMenuBar implements ActionListener {
             return;
         }
 
-        String pk = new InputDialog(frame, GUIMessages.get("EnterPrivateKey"), false).showAndGet();
+        InputDialog inputDialog = new InputDialog(frame, GuiMessages.get("EnterPrivateKey"), false);
+        inputDialog.setTitle(GuiMessages.get("ImportPrivateKey"));
+        String pk = inputDialog.showAndGet();
         if (pk != null) {
             try {
                 Wallet wallet = gui.getKernel().getWallet();
-                EdDSA account = new EdDSA(Hex.decode0x(pk));
+                Key account = new Key(Hex.decode0x(pk));
                 if (wallet.addAccount(account)) {
                     wallet.flush();
-                    JOptionPane.showMessageDialog(frame, GUIMessages.get("PrivateKeyImportSuccess"));
-                    gui.getModel().fireUpdateEvent();
+                    JOptionPane.showMessageDialog(frame, GuiMessages.get("PrivateKeyImportSuccess"));
+                    gui.updateModel();
                 } else {
-                    JOptionPane.showMessageDialog(frame, GUIMessages.get("PrivateKeyAlreadyExists"));
+                    JOptionPane.showMessageDialog(frame, GuiMessages.get("PrivateKeyAlreadyExists"));
                 }
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(frame, GUIMessages.get("PrivateKeyImportFailed"));
+                JOptionPane.showMessageDialog(frame, GuiMessages.get("PrivateKeyImportFailed"));
             }
         }
     }
@@ -264,7 +297,9 @@ public class MenuBar extends JMenuBar implements ActionListener {
      * Shows the about dialog.
      */
     protected void about() {
-        JOptionPane.showMessageDialog(frame, gui.getKernel().getConfig().getClientId());
+        Icon icon = SwingUtil.loadImage("logo", 64, 64);
+        JOptionPane.showMessageDialog(frame, gui.getKernel().getConfig().getClientId(),
+                GuiMessages.get("About"), JOptionPane.INFORMATION_MESSAGE, icon);
     }
 
     private void help() {
@@ -278,6 +313,31 @@ public class MenuBar extends JMenuBar implements ActionListener {
     }
 
     /**
+     * Shows the console
+     */
+    private void console() {
+        if (showErrorIfLocked()) {
+            return;
+        }
+        ConsoleDialog d = new ConsoleDialog(gui, frame);
+        d.setVisible(true);
+    }
+
+    /**
+     * Shows the Swagger UI.
+     */
+    private void apiExplorer() {
+        if (Desktop.isDesktopSupported()) {
+            final String swaggerUrl = gui.getKernel().getApi().getSwaggerUrl();
+            try {
+                Desktop.getDesktop().browse(new URI(swaggerUrl));
+            } catch (IOException | URISyntaxException e) {
+                logger.error("Unable to parse swagger url " + swaggerUrl);
+            }
+        }
+    }
+
+    /**
      * Displays an error message if the wallet is locked.
      * 
      * @return whether the wallet is locked
@@ -286,7 +346,7 @@ public class MenuBar extends JMenuBar implements ActionListener {
         Wallet wallet = gui.getKernel().getWallet();
 
         if (wallet.isLocked()) {
-            JOptionPane.showMessageDialog(frame, GUIMessages.get("WalletLocked"));
+            JOptionPane.showMessageDialog(frame, GuiMessages.get("WalletLocked"));
             return true;
         }
 

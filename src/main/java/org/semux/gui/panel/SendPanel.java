@@ -1,10 +1,12 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.gui.panel;
+
+import static org.semux.core.Amount.sum;
 
 import java.awt.Color;
 import java.awt.Font;
@@ -13,6 +15,10 @@ import java.awt.event.ActionListener;
 import java.text.ParseException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 import javax.swing.ButtonGroup;
 import javax.swing.GroupLayout;
@@ -30,20 +36,22 @@ import javax.swing.SwingConstants;
 import javax.swing.border.LineBorder;
 
 import org.semux.Kernel;
+import org.semux.Network;
 import org.semux.config.Config;
+import org.semux.core.Amount;
 import org.semux.core.PendingManager;
 import org.semux.core.Transaction;
 import org.semux.core.TransactionType;
 import org.semux.crypto.CryptoException;
-import org.semux.crypto.EdDSA;
 import org.semux.crypto.Hex;
+import org.semux.crypto.Key;
 import org.semux.gui.Action;
-import org.semux.gui.SemuxGUI;
+import org.semux.gui.SemuxGui;
 import org.semux.gui.SwingUtil;
-import org.semux.gui.dialog.AddressBookDialog;
 import org.semux.gui.model.WalletAccount;
 import org.semux.gui.model.WalletModel;
-import org.semux.message.GUIMessages;
+import org.semux.message.GuiMessages;
+import org.semux.util.ByteArray;
 import org.semux.util.Bytes;
 import org.semux.util.exception.UnreachableException;
 
@@ -51,49 +59,43 @@ public class SendPanel extends JPanel implements ActionListener {
 
     private static final long serialVersionUID = 1L;
 
-    private JFrame frame;
-    private transient WalletModel model;
+    private final transient SemuxGui gui;
+    private final transient WalletModel model;
+    private final transient Kernel kernel;
+    private final transient Config config;
 
-    private transient Kernel kernel;
-    private transient Config config;
+    private final JComboBox<AccountItem> selectFrom;
+    private final JComboBox<AccountItem> selectTo;
+    private final JTextField txtAmount;
+    private final JTextField txtFee;
+    private final JTextField txtData;
+    private final JRadioButton rdbtnText;
+    private final JRadioButton rdbtnHex;
 
-    private JComboBox<Item> selectFrom;
-    private JTextField txtTo;
-    private JTextField txtAmount;
-    private JTextField txtFee;
-    private JTextField txtData;
-    private JRadioButton rdbtnText;
-    private JRadioButton rdbtnHex;
-
-    private AddressBookDialog addressBookDialog;
-
-    public SendPanel(SemuxGUI gui, JFrame frame) {
+    public SendPanel(SemuxGui gui, JFrame frame) {
+        this.gui = gui;
         this.model = gui.getModel();
         this.model.addListener(this);
 
         this.kernel = gui.getKernel();
         this.config = kernel.getConfig();
 
-        this.frame = frame;
-
         setBorder(new LineBorder(Color.LIGHT_GRAY));
 
-        JLabel lblFrom = new JLabel(GUIMessages.get("From") + ":");
+        JLabel lblFrom = new JLabel(GuiMessages.get("From") + ":");
         lblFrom.setHorizontalAlignment(SwingConstants.RIGHT);
 
         selectFrom = new JComboBox<>();
         selectFrom.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
 
-        JLabel lblTo = new JLabel(GUIMessages.get("To") + ":");
+        JLabel lblTo = new JLabel(GuiMessages.get("To") + ":");
         lblTo.setHorizontalAlignment(SwingConstants.RIGHT);
 
-        txtTo = SwingUtil.textFieldWithCopyPastePopup();
-        txtTo.setName("txtTo");
-        txtTo.setColumns(24);
-        txtTo.setActionCommand(Action.SEND.name());
-        txtTo.addActionListener(this);
+        selectTo = SwingUtil.comboBoxWithCopyPastePopup();
+        selectTo.setName("selectTo");
+        selectTo.setEditable(true);
 
-        JLabel lblAmount = new JLabel(GUIMessages.get("Amount") + ":");
+        JLabel lblAmount = new JLabel(GuiMessages.get("Amount") + ":");
         lblAmount.setHorizontalAlignment(SwingConstants.RIGHT);
 
         txtAmount = SwingUtil.textFieldWithCopyPastePopup();
@@ -102,9 +104,9 @@ public class SendPanel extends JPanel implements ActionListener {
         txtAmount.setActionCommand(Action.SEND.name());
         txtAmount.addActionListener(this);
 
-        JLabel lblFee = new JLabel(GUIMessages.get("Fee") + ":");
+        JLabel lblFee = new JLabel(GuiMessages.get("Fee") + ":");
         lblFee.setHorizontalAlignment(SwingConstants.RIGHT);
-        lblFee.setToolTipText(GUIMessages.get("FeeTip", SwingUtil.formatValue(config.minTransactionFee())));
+        lblFee.setToolTipText(GuiMessages.get("FeeTip", SwingUtil.formatAmount(config.minTransactionFee())));
 
         txtFee = SwingUtil.textFieldWithCopyPastePopup();
         txtFee.setName("txtFee");
@@ -112,39 +114,39 @@ public class SendPanel extends JPanel implements ActionListener {
         txtFee.setActionCommand(Action.SEND.name());
         txtFee.addActionListener(this);
 
-        JLabel lblData = new JLabel(GUIMessages.get("Data") + ":");
+        JLabel lblData = new JLabel(GuiMessages.get("Data") + ":");
         lblData.setHorizontalAlignment(SwingConstants.RIGHT);
-        lblData.setToolTipText(GUIMessages.get("DataTip"));
+        lblData.setToolTipText(GuiMessages.get("DataTip"));
 
         txtData = SwingUtil.textFieldWithCopyPastePopup();
         txtData.setName("txtData");
         txtData.setColumns(10);
         txtData.setActionCommand(Action.SEND.name());
         txtData.addActionListener(this);
-        txtData.setToolTipText(GUIMessages.get("DataTip"));
+        txtData.setToolTipText(GuiMessages.get("DataTip"));
 
         JLabel lblSem1 = new JLabel("SEM");
 
         JLabel lblSem2 = new JLabel("SEM");
 
-        JButton btnSend = new JButton(GUIMessages.get("Send"));
+        JButton btnSend = new JButton(GuiMessages.get("Send"));
         btnSend.setName("btnSend");
         btnSend.addActionListener(this);
         btnSend.setActionCommand(Action.SEND.name());
 
-        JButton btnClear = new JButton(GUIMessages.get("Clear"));
+        JButton btnClear = new JButton(GuiMessages.get("Clear"));
         btnClear.setName("btnClear");
         btnClear.addActionListener(this);
         btnClear.setActionCommand(Action.CLEAR.name());
 
-        JButton btnAddressBook = new JButton(GUIMessages.get("AddressBook"));
+        JButton btnAddressBook = new JButton(GuiMessages.get("AddressBook"));
         btnAddressBook.setName("btnAddressBook");
         btnAddressBook.addActionListener(this);
         btnAddressBook.setActionCommand(Action.SHOW_ADDRESS_BOOK.name());
 
-        rdbtnText = new JRadioButton(GUIMessages.get("Text"));
+        rdbtnText = new JRadioButton(GuiMessages.get("Text"));
         rdbtnText.setSelected(true);
-        rdbtnHex = new JRadioButton(GUIMessages.get("Hex"));
+        rdbtnHex = new JRadioButton(GuiMessages.get("Hex"));
         ButtonGroup btnGroupDataType = new ButtonGroup();
         btnGroupDataType.add(rdbtnText);
         btnGroupDataType.add(rdbtnHex);
@@ -187,7 +189,7 @@ public class SendPanel extends JPanel implements ActionListener {
                                             .addPreferredGap(ComponentPlacement.RELATED)
                                             .addComponent(rdbtnHex))))
                                 .addGroup(Alignment.TRAILING, groupLayout.createSequentialGroup()
-                                    .addComponent(txtTo, GroupLayout.DEFAULT_SIZE, 300, Short.MAX_VALUE)
+                                    .addComponent(selectTo, GroupLayout.DEFAULT_SIZE, 300, Short.MAX_VALUE)
                                     .addGap(18)
                                     .addComponent(btnAddressBook)))
                             .addGap(59))))
@@ -202,7 +204,7 @@ public class SendPanel extends JPanel implements ActionListener {
                     .addGap(18)
                     .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
                         .addComponent(lblTo)
-                        .addComponent(txtTo, GroupLayout.PREFERRED_SIZE, 25, GroupLayout.PREFERRED_SIZE)
+                        .addComponent(selectTo, GroupLayout.PREFERRED_SIZE, 25, GroupLayout.PREFERRED_SIZE)
                         .addComponent(btnAddressBook))
                     .addGap(18)
                     .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
@@ -234,27 +236,40 @@ public class SendPanel extends JPanel implements ActionListener {
     }
 
     public String getToText() {
-        return txtTo.getText().trim();
+
+        Object selected = selectTo.getSelectedItem();
+        String ret = "";
+
+        if (selected instanceof AccountItem) {
+            // selected item
+            AccountItem accountItem = (AccountItem) selected;
+            ret = Hex.encode0x(accountItem.address);
+        } else if (selected != null) {
+            // manually entered
+            return selected.toString().trim();
+        }
+
+        return ret;
     }
 
     public void setToText(byte[] address) {
-        txtTo.setText(Hex.encode(address));
+        selectTo.setSelectedItem(Hex.encode(address));
     }
 
-    public long getAmountText() throws ParseException {
-        return SwingUtil.parseValue(txtAmount.getText().trim());
+    public Amount getAmountText() throws ParseException {
+        return SwingUtil.parseAmount(txtAmount.getText().trim());
     }
 
-    public void setAmountText(long a) {
-        txtAmount.setText(SwingUtil.formatValue(a, false));
+    public void setAmountText(Amount a) {
+        txtAmount.setText(SwingUtil.formatAmountNoUnit(a));
     }
 
-    public long getFeeText() throws ParseException {
-        return SwingUtil.parseValue(txtFee.getText().trim());
+    public Amount getFeeText() throws ParseException {
+        return SwingUtil.parseAmount(txtFee.getText().trim());
     }
 
-    public void setFeeText(long f) {
-        txtFee.setText(SwingUtil.formatValue(f, false));
+    public void setFeeText(Amount f) {
+        txtFee.setText(SwingUtil.formatAmountNoUnit(f));
     }
 
     public String getDataText() {
@@ -293,36 +308,52 @@ public class SendPanel extends JPanel implements ActionListener {
     protected void refresh() {
         List<WalletAccount> list = model.getAccounts();
 
-        // quit if no update
-        boolean match = selectFrom.getItemCount() == list.size();
-        if (match) {
-            for (int i = 0; i < list.size(); i++) {
-                if (!Arrays.equals(selectFrom.getItemAt(i).account.getAddress(), list.get(i).getAddress())) {
-                    match = false;
-                    break;
-                }
-            }
+        Set<AccountItem> accountItems = new TreeSet<>();
+        for (WalletAccount aList : list) {
+            AccountItem accountItem = new AccountItem(aList);
+            accountItems.add(accountItem);
         }
 
-        if (!match) {
+        // update account list if user is not interacting with it
+        if (!selectFrom.isPopupVisible()) {
             // record selected account
-            Item selected = (Item) selectFrom.getSelectedItem();
+            AccountItem selected = (AccountItem) selectFrom.getSelectedItem();
 
-            // update account list
             selectFrom.removeAllItems();
-            for (int i = 0; i < list.size(); i++) {
-                selectFrom.addItem(new Item(list.get(i), i));
+
+            for (AccountItem accountItem : accountItems) {
+                selectFrom.addItem(accountItem);
             }
 
             // recover selected account
             if (selected != null) {
-                for (int i = 0; i < list.size(); i++) {
-                    if (Arrays.equals(list.get(i).getAddress(), selected.account.getAddress())) {
-                        selectFrom.setSelectedIndex(i);
+                for (AccountItem item : accountItems) {
+                    if (Arrays.equals(item.address, selected.address)) {
+                        selectFrom.setSelectedItem(item);
                         break;
                     }
                 }
             }
+        }
+
+        // add aliases to list of accounts
+        for (Map.Entry<ByteArray, String> address : kernel.getWallet().getAddressAliases().entrySet()) {
+            // only add aliases not in wallet
+            if (kernel.getWallet().getAccount(address.getKey().getData()) == null) {
+                accountItems.add(new AccountItem(address.getValue(), address.getKey().getData()));
+            }
+        }
+
+        // 'to' contains all current accounts and address book, only update if user
+        // isn't interacting with it
+        if (!selectTo.isPopupVisible()) {
+            Object toSelected = selectTo.getSelectedItem();
+
+            selectTo.removeAllItems();
+            for (AccountItem accountItem : accountItems) {
+                selectTo.addItem(accountItem);
+            }
+            selectTo.setSelectedItem(toSelected);
         }
     }
 
@@ -332,48 +363,48 @@ public class SendPanel extends JPanel implements ActionListener {
     protected void send() {
         try {
             WalletAccount acc = getSelectedAccount();
-            long value = getAmountText();
-            long fee = getFeeText();
+            Amount value = getAmountText();
+            Amount fee = getFeeText();
             String data = getDataText();
 
             // decode0x recipient address
             byte[] to = Hex.decode0x(getToText());
 
             if (acc == null) {
-                showErrorDialog(GUIMessages.get("SelectAccount"));
-            } else if (value <= 0L) {
-                showErrorDialog(GUIMessages.get("EnterValidValue"));
-            } else if (fee < config.minTransactionFee()) {
-                showErrorDialog(GUIMessages.get("TransactionFeeTooLow"));
-            } else if (value + fee > acc.getAvailable()) {
-                showErrorDialog(GUIMessages.get("InsufficientFunds", SwingUtil.formatValue(value + fee)));
-            } else if (to.length != EdDSA.ADDRESS_LEN) {
-                showErrorDialog(GUIMessages.get("InvalidReceivingAddress"));
+                showErrorDialog(GuiMessages.get("SelectAccount"));
+            } else if (value.lte0()) {
+                showErrorDialog(GuiMessages.get("EnterValidValue"));
+            } else if (fee.lt(config.minTransactionFee())) {
+                showErrorDialog(GuiMessages.get("TransactionFeeTooLow"));
+            } else if (sum(value, fee).gt(acc.getAvailable())) {
+                showErrorDialog(GuiMessages.get("InsufficientFunds", SwingUtil.formatAmount(sum(value, fee))));
+            } else if (to.length != Key.ADDRESS_LEN) {
+                showErrorDialog(GuiMessages.get("InvalidReceivingAddress"));
             } else if (Bytes.of(data).length > config.maxTransactionDataSize(TransactionType.TRANSFER)) {
                 showErrorDialog(
-                        GUIMessages.get("InvalidData", config.maxTransactionDataSize(TransactionType.TRANSFER)));
+                        GuiMessages.get("InvalidData", config.maxTransactionDataSize(TransactionType.TRANSFER)));
             } else {
                 int ret = JOptionPane.showConfirmDialog(this,
-                        GUIMessages.get("TransferInfo", SwingUtil.formatValue(value), Hex.encode0x(to)),
-                        GUIMessages.get("ConfirmTransfer"), JOptionPane.YES_NO_OPTION);
+                        GuiMessages.get("TransferInfo", SwingUtil.formatAmountFull(value), Hex.encode0x(to)),
+                        GuiMessages.get("ConfirmTransfer"), JOptionPane.YES_NO_OPTION);
                 if (ret == JOptionPane.YES_OPTION) {
                     PendingManager pendingMgr = kernel.getPendingManager();
 
                     byte[] rawData = rdbtnText.isSelected() ? Bytes.of(data) : Hex.decode0x(data);
 
-                    byte networkId = kernel.getConfig().networkId();
+                    Network network = kernel.getConfig().network();
                     TransactionType type = TransactionType.TRANSFER;
                     byte[] from = acc.getKey().toAddress();
                     long nonce = pendingMgr.getNonce(from);
                     long timestamp = System.currentTimeMillis();
-                    Transaction tx = new Transaction(networkId, type, to, value, fee, nonce, timestamp, rawData);
+                    Transaction tx = new Transaction(network, type, to, value, fee, nonce, timestamp, rawData);
                     tx.sign(acc.getKey());
 
                     sendTransaction(pendingMgr, tx);
                 }
             }
         } catch (ParseException | CryptoException ex) {
-            showErrorDialog(GUIMessages.get("EnterValidValue"));
+            showErrorDialog(GuiMessages.get("EnterValidValue"));
         }
     }
 
@@ -382,7 +413,7 @@ public class SendPanel extends JPanel implements ActionListener {
      */
     protected void clear() {
         setToText(Bytes.EMPTY_BYTES);
-        setAmountText(0);
+        setAmountText(Amount.ZERO);
         setFeeText(config.minTransactionFee());
         setDataText("");
     }
@@ -391,11 +422,7 @@ public class SendPanel extends JPanel implements ActionListener {
      * Shows the address book.
      */
     protected void showAddressBook() {
-        if (addressBookDialog == null) {
-            addressBookDialog = new AddressBookDialog(frame, model);
-        }
-
-        addressBookDialog.setVisible(true);
+        gui.getAddressBookDialog().setVisible(true);
     }
 
     /**
@@ -419,12 +446,12 @@ public class SendPanel extends JPanel implements ActionListener {
         if (result.error == null) {
             JOptionPane.showMessageDialog(
                     this,
-                    GUIMessages.get("TransactionSent", 30),
-                    GUIMessages.get("SuccessDialogTitle"),
+                    GuiMessages.get("TransactionSent", 30),
+                    GuiMessages.get("SuccessDialogTitle"),
                     JOptionPane.INFORMATION_MESSAGE);
             clear();
         } else {
-            showErrorDialog(GUIMessages.get("TransactionFailed", result.error.toString()));
+            showErrorDialog(GuiMessages.get("TransactionFailed", result.error.toString()));
         }
     }
 
@@ -437,26 +464,39 @@ public class SendPanel extends JPanel implements ActionListener {
         JOptionPane.showMessageDialog(
                 this,
                 message,
-                GUIMessages.get("ErrorDialogTitle"),
+                GuiMessages.get("ErrorDialogTitle"),
                 JOptionPane.ERROR_MESSAGE);
     }
 
     /**
      * Represents an item in the account drop list.
      */
-    protected static class Item {
-        WalletAccount account;
-        String name;
+    protected static class AccountItem implements Comparable<AccountItem> {
+        final byte[] address;
+        final String name;
 
-        public Item(WalletAccount a, int idx) {
-            this.account = a;
-            this.name = Hex.PREF + account.getKey().toAddressString() + ", " + GUIMessages.get("AccountNumShort", idx)
-                    + ", " + SwingUtil.formatValue(account.getAvailable());
+        AccountItem(WalletAccount a) {
+            Optional<String> alias = a.getName();
+
+            this.address = a.getKey().toAddress();
+            this.name = Hex.PREF + a.getKey().toAddressString() + ", " // address
+                    + (alias.map(s -> s + ", ").orElse("")) // alias
+                    + SwingUtil.formatAmount(a.getAvailable()); // available
+        }
+
+        AccountItem(String alias, byte[] address) {
+            this.name = Hex.encode0x(address) + ", " + alias;
+            this.address = address;
         }
 
         @Override
         public String toString() {
             return this.name;
+        }
+
+        @Override
+        public int compareTo(AccountItem o) {
+            return name.compareTo(o.name);
         }
     }
 }

@@ -1,13 +1,13 @@
 /**
- * Copyright (c) 2017 The Semux Developers
+ * Copyright (c) 2017-2018 The Semux Developers
  *
  * Distributed under the MIT software license, see the accompanying file
  * LICENSE or https://opensource.org/licenses/mit-license.php
  */
 package org.semux.consensus;
 
-import org.semux.crypto.EdDSA;
-import org.semux.crypto.EdDSA.Signature;
+import org.semux.crypto.Key;
+import org.semux.crypto.Key.Signature;
 import org.semux.util.Bytes;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
@@ -16,15 +16,17 @@ public class Vote {
     public static final boolean VALUE_APPROVE = true;
     public static final boolean VALUE_REJECT = false;
 
-    private VoteType type;
-    private boolean value;
+    private final VoteType type;
+    private final boolean value;
 
-    private long height;
-    private int view;
-    private byte[] blockHash;
+    private final long height;
+    private final int view;
+    private final byte[] blockHash;
 
-    private byte[] encoded;
+    private final byte[] encoded;
+
     private Signature signature;
+    private Boolean validated;
 
     public Vote(VoteType type, boolean value, long height, int view, byte[] blockHash) {
         this.type = type;
@@ -32,6 +34,7 @@ public class Vote {
         this.height = height;
         this.view = view;
         this.blockHash = blockHash;
+        this.validated = null;
 
         SimpleEncoder enc = new SimpleEncoder();
         enc.writeByte(type.toByte());
@@ -51,6 +54,7 @@ public class Vote {
         this.height = dec.readLong();
         this.view = dec.readInt();
         this.blockHash = dec.readBytes();
+        this.validated = null;
 
         this.signature = Signature.fromBytes(signature);
     }
@@ -69,23 +73,35 @@ public class Vote {
      * @param key
      * @return
      */
-    public Vote sign(EdDSA key) {
+    public Vote sign(Key key) {
         this.signature = key.sign(encoded);
+        this.validated = null;
         return this;
     }
 
     /**
-     * validate the vote format and signature.
+     * validate the vote format and signature while ignoring any cached validation
+     * value.
      * 
      * @return
      */
-    public boolean validate() {
-        return type != null
+    public boolean revalidate() {
+        return (validated = (type != null
                 && height > 0
                 && view >= 0
                 && blockHash != null && blockHash.length == 32
                 && encoded != null
-                && signature != null && EdDSA.verify(encoded, signature);
+                && signature != null && Key.verify(encoded, signature)));
+    }
+
+    /**
+     * validate the vote format and signature. if exists, a memoized validation
+     * value is returned. NOTE: to force revalidation use {@link Vote#revalidate()}.
+     * 
+     * @return
+     */
+    public boolean validate() {
+        return validated == null ? revalidate() : validated;
     }
 
     public VoteType getType() {
