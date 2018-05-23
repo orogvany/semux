@@ -1,12 +1,18 @@
+/**
+ * Copyright (c) 2017-2018 The Semux Developers
+ *
+ * Distributed under the MIT software license, see the accompanying file
+ * LICENSE or https://opensource.org/licenses/mit-license.php
+ */
 package org.semux.util;
-
-import java.io.IOException;
-import java.net.InetAddress;
 
 import org.apache.commons.net.ntp.NTPUDPClient;
 import org.apache.commons.net.ntp.TimeInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.InetAddress;
 
 /**
  * Check if current clocktime has drifted from NTP
