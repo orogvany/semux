@@ -26,7 +26,6 @@ import org.semux.crypto.Hex;
 import org.semux.crypto.Key;
 import org.semux.exception.LauncherException;
 import org.semux.message.CliMessages;
-import org.semux.message.GuiMessages;
 import org.semux.net.filter.exception.IpFilterJsonParseException;
 import org.semux.util.ConsoleUtil;
 import org.semux.util.FileUtil;
@@ -34,8 +33,6 @@ import org.semux.util.SystemUtil;
 import org.semux.util.TimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.swing.JOptionPane;
 
 /**
  * Semux command line interface.
