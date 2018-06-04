@@ -42,6 +42,7 @@ import org.semux.event.PubSubFactory;
 import org.semux.util.Bytes;
 import org.semux.util.SimpleDecoder;
 import org.semux.util.SimpleEncoder;
+import org.semux.util.TimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -849,7 +850,7 @@ public class BlockchainImpl implements Blockchain {
                 String dbName = dbFactory.getDataDir().getFileName().toString();
                 Path tempPath = dbFactory
                         .getDataDir()
-                        .resolveSibling(dbName + "_tmp_" + System.currentTimeMillis());
+                        .resolveSibling(dbName + "_tmp_" + TimeUtil.currentTimeMillis());
                 LeveldbDatabase.LeveldbFactory tempDb = new LeveldbDatabase.LeveldbFactory(tempPath.toFile());
                 MigrationBlockchain migrationBlockchain = new MigrationBlockchain(config, tempDb);
                 final long latestBlockNumber = getLatestBlockNumber();
@@ -868,7 +869,8 @@ public class BlockchainImpl implements Blockchain {
                 Path backupPath = dbFactory
                         .getDataDir()
                         .resolveSibling(
-                                dbFactory.getDataDir().getFileName().toString() + "_bak_" + System.currentTimeMillis());
+                                dbFactory.getDataDir().getFileName().toString() + "_bak_"
+                                        + TimeUtil.currentTimeMillis());
                 dbFactory.moveTo(backupPath);
                 tempDb.moveTo(dbFactory.getDataDir());
                 dbFactory.open();

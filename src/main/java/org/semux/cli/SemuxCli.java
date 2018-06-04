@@ -181,7 +181,7 @@ public class SemuxCli extends Launcher {
             }
         }
 
-        long timeDrift = TimeUtil.getNetworkTimeOffset();
+        long timeDrift = TimeUtil.getTimeOffsetFromNtp();
         if (Math.abs(timeDrift) > 20000L) {
             logger.warn(CliMessages.get("SystemTimeDrift"));
         }

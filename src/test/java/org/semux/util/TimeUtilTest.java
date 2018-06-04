@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Date;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -42,7 +43,9 @@ public class TimeUtilTest {
 
     @Test
     public void testNtpTime() {
-        long offset = TimeUtil.getNetworkTimeOffset();
-        Assert.assertTrue(offset < 30000L);
+        long currentTime = System.currentTimeMillis();
+        long offset = TimeUtil.getTimeOffsetFromNtp();
+        // ensure the time is within the actual time offset.
+        Assert.assertTrue(Math.abs(currentTime + offset - TimeUtil.currentTimeMillis()) < 1000);
     }
 }
