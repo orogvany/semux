@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -37,5 +38,11 @@ public class TimeUtilTest {
     @Test
     public void testFormatDuration() {
         assertTrue(TimeUtil.formatDuration(duration).equals(formatted));
+    }
+
+    @Test
+    public void testNtpTime() {
+        long offset = TimeUtil.getNetworkTimeOffset();
+        Assert.assertTrue(offset < 30000L);
     }
 }

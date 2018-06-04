@@ -57,6 +57,7 @@ import org.semux.net.Peer;
 import org.semux.net.filter.exception.IpFilterJsonParseException;
 import org.semux.util.FileUtil;
 import org.semux.util.SystemUtil;
+import org.semux.util.TimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -395,6 +396,12 @@ public class SemuxGui extends Launcher {
                         && !v.latestVersion.equals(lastVersionNotified)) {
                     JOptionPane.showMessageDialog(null, GuiMessages.get("WalletCanBeUpgraded"));
                     lastVersionNotified = v.latestVersion;
+                }
+
+                // check if their time has drifted
+                long timeDrift = TimeUtil.getNetworkTimeOffset();
+                if (Math.abs(timeDrift) > 20000L) {
+                    JOptionPane.showMessageDialog(null, GuiMessages.get("SystemTimeDrift"));
                 }
 
                 Thread.sleep(8L * 60L * 60L * 1000L); // 8 hours
